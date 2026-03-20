@@ -14,7 +14,6 @@ const ticketSchema = new mongoose.Schema({
   },
   imageUrl: {
     type: String,
-    required: true,
   },
   bets: [betSchema],
   status: {

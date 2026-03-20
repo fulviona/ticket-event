@@ -1,29 +1,15 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const Tesseract = require('tesseract.js');
 const Ticket = require('../models/Ticket');
 const { auth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Assicura che la directory uploads esista
-const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  },
-});
-
+// Salva in memoria (buffer), non su disco
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = /jpeg|jpg|png|webp/;
@@ -58,6 +44,22 @@ function parseBets(text) {
   return bets;
 }
 
+// Stato chiusi da rifiutare
+const CLOSED_STATUSES = [
+  'da non pagare',
+  'non pagare',
+  'perdente',
+  'persa',
+  'rimborsata',
+  'annullata',
+  'void',
+];
+
+function isTicketClosed(text) {
+  const lower = text.toLowerCase();
+  return CLOSED_STATUSES.some((s) => lower.includes(s));
+}
+
 // Upload ticket con OCR
 router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
   try {
@@ -65,26 +67,32 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
       return res.status(400).json({ message: 'Nessuna immagine caricata.' });
     }
 
-    console.log('File caricato:', req.file.path);
+    console.log('File ricevuto in memoria, size:', req.file.size);
 
     let text = '';
     let bets = [];
 
     try {
-      const result = await Tesseract.recognize(req.file.path, 'ita+eng');
+      // Usa il buffer in memoria per OCR
+      const result = await Tesseract.recognize(req.file.buffer, 'ita+eng');
       text = result.data.text;
       console.log('OCR completato. Testo estratto:', text.substring(0, 200));
       bets = parseBets(text);
     } catch (ocrErr) {
       console.error('Errore OCR:', ocrErr.message);
-      // Salva comunque il ticket anche se OCR fallisce
       text = 'OCR non disponibile';
       bets = [{ match: 'Scommessa caricata', prediction: 'Da verificare manualmente', eventDate: new Date() }];
     }
 
+    // Rifiuta ticket già chiusi/persi
+    if (isTicketClosed(text)) {
+      return res.status(400).json({
+        message: 'Questo ticket risulta già chiuso. Puoi caricare solo ticket ancora in corso.',
+      });
+    }
+
     const ticket = new Ticket({
       user: req.user._id,
-      imageUrl: `/uploads/${req.file.filename}`,
       ocrRawText: text,
       bets,
     });

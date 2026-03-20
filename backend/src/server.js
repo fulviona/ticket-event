@@ -15,7 +15,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// Le immagini non vengono più salvate su disco
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
