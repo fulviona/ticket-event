@@ -37,6 +37,7 @@ app.post('/api/setup-admin', async (req, res) => {
       return res.json({ message: 'Utente promosso ad admin.' });
     }
     const admin = new User({
+      alias: 'Admin',
       email: 'admin@ticketevent.it',
       password: 'Admin2026!',
       phone: '+39000000000',

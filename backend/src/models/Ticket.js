@@ -28,6 +28,10 @@ const ticketSchema = new mongoose.Schema({
     enum: ['pending', 'won', 'lost'],
     default: 'pending',
   },
+  shared: {
+    type: Boolean,
+    default: false,
+  },
   ocrRawText: {
     type: String,
   },

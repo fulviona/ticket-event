@@ -2,6 +2,14 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
+  alias: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true,
+    minlength: 3,
+    maxlength: 20,
+  },
   email: {
     type: String,
     required: true,
@@ -22,6 +30,10 @@ const userSchema = new mongoose.Schema({
   dateOfBirth: {
     type: Date,
     required: true,
+  },
+  avatar: {
+    type: String,
+    default: null, // URL o base64 della foto profilo
   },
   newsletterConsent: {
     type: Boolean,

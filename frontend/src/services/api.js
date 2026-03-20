@@ -18,6 +18,7 @@ export const login = (data) => api.post('/auth/login', data);
 
 // Users
 export const getMe = () => api.get('/users/me');
+export const updateProfile = (data) => api.patch('/users/me', data);
 export const getLeaderboard = () => api.get('/users/leaderboard');
 export const getAllUsers = () => api.get('/users/all');
 
@@ -27,6 +28,8 @@ export const uploadTicket = (formData) =>
     headers: { 'Content-Type': 'multipart/form-data' },
   });
 export const getMyTickets = () => api.get('/tickets/my');
+export const getSharedTickets = () => api.get('/tickets/shared');
+export const toggleShareTicket = (id) => api.patch(`/tickets/${id}/share`);
 export const getAllTickets = () => api.get('/tickets/all');
 export const updateTicketStatus = (id, status) => api.patch(`/tickets/${id}/status`, { status });
 export const deleteTicket = (id) => api.delete(`/tickets/${id}`);

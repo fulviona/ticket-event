@@ -17,7 +17,7 @@ function Leaderboard() {
         <thead>
           <tr>
             <th>#</th>
-            <th>Utente</th>
+            <th>Player</th>
             <th>Punti</th>
           </tr>
         </thead>
@@ -27,7 +27,22 @@ function Leaderboard() {
               <td className={index < 3 ? `rank-${index + 1}` : ''}>
                 {index + 1}
               </td>
-              <td>{user.email}</td>
+              <td>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {user.avatar ? (
+                    <img src={user.avatar} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%', background: '#263238',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.8rem', color: '#4fc3f7', fontWeight: 'bold',
+                    }}>
+                      {user.alias?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                  )}
+                  <span>{user.alias || 'Anonimo'}</span>
+                </div>
+              </td>
               <td style={{ fontWeight: 'bold', color: '#4fc3f7' }}>{user.points}</td>
             </tr>
           ))}

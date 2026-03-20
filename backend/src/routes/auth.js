@@ -20,6 +20,7 @@ function isAdult(dateOfBirth) {
 router.post(
   '/register',
   [
+    body('alias').isLength({ min: 3, max: 20 }).withMessage('Alias deve essere tra 3 e 20 caratteri'),
     body('email').isEmail().withMessage('Email non valida'),
     body('password').isLength({ min: 6 }).withMessage('Password minimo 6 caratteri'),
     body('phone').notEmpty().withMessage('Numero di telefono obbligatorio'),
@@ -34,18 +35,24 @@ router.post(
     }
 
     try {
-      const { email, password, phone, dateOfBirth, newsletterConsent, privacyConsent, cookieConsent } = req.body;
+      const { alias, email, password, phone, dateOfBirth, newsletterConsent, privacyConsent, cookieConsent } = req.body;
 
       if (!isAdult(dateOfBirth)) {
         return res.status(400).json({ message: 'Devi essere maggiorenne per registrarti.' });
       }
 
-      const existingUser = await User.findOne({ email });
-      if (existingUser) {
+      const existingEmail = await User.findOne({ email });
+      if (existingEmail) {
         return res.status(400).json({ message: 'Email già registrata.' });
       }
 
+      const existingAlias = await User.findOne({ alias: { $regex: new RegExp(`^${alias}$`, 'i') } });
+      if (existingAlias) {
+        return res.status(400).json({ message: 'Questo alias è già in uso. Scegline un altro.' });
+      }
+
       const user = new User({
+        alias,
         email,
         password,
         phone,
@@ -63,10 +70,12 @@ router.post(
         token,
         user: {
           id: user._id,
+          alias: user.alias,
           email: user.email,
           phone: user.phone,
           role: user.role,
           points: user.points,
+          avatar: user.avatar,
         },
       });
     } catch (err) {
@@ -75,11 +84,11 @@ router.post(
   }
 );
 
-// Login
+// Login (con alias o email)
 router.post(
   '/login',
   [
-    body('email').isEmail().withMessage('Email non valida'),
+    body('login').notEmpty().withMessage('Inserisci alias o email'),
     body('password').notEmpty().withMessage('Password obbligatoria'),
   ],
   async (req, res) => {
@@ -89,8 +98,16 @@ router.post(
     }
 
     try {
-      const { email, password } = req.body;
-      const user = await User.findOne({ email });
+      const { login, password } = req.body;
+
+      // Cerca per email o alias
+      const user = await User.findOne({
+        $or: [
+          { email: login.toLowerCase() },
+          { alias: { $regex: new RegExp(`^${login}$`, 'i') } },
+        ],
+      });
+
       if (!user) {
         return res.status(400).json({ message: 'Credenziali non valide.' });
       }
@@ -106,10 +123,12 @@ router.post(
         token,
         user: {
           id: user._id,
+          alias: user.alias,
           email: user.email,
           phone: user.phone,
           role: user.role,
           points: user.points,
+          avatar: user.avatar,
         },
       });
     } catch (err) {

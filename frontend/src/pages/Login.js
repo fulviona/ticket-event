@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { login } from '../services/api';
 
 function Login({ setUser }) {
-  const [form, setForm] = useState({ email: '', password: '' });
+  const [form, setForm] = useState({ login: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -32,8 +32,8 @@ function Login({ setUser }) {
       {error && <div className="error-msg">{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="form-group">
-          <label>Email</label>
-          <input type="email" name="email" value={form.email} onChange={handleChange} required />
+          <label>Alias o Email</label>
+          <input type="text" name="login" value={form.login} onChange={handleChange} required placeholder="Il tuo alias o email" />
         </div>
         <div className="form-group">
           <label>Password</label>

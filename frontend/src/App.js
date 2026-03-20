@@ -4,6 +4,7 @@ import { getMe } from './services/api';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
+import Profile from './pages/Profile';
 import Leaderboard from './pages/Leaderboard';
 import AdminUsers from './pages/AdminUsers';
 import AdminEvents from './pages/AdminEvents';
@@ -50,7 +51,21 @@ function App() {
                     <Link to="/admin/events">Eventi</Link>
                   </>
                 )}
-                <span className="user-info">{user.email} ({user.points} pt)</span>
+                <Link to="/profile" className="user-info" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', textDecoration: 'none' }}>
+                  {user.avatar ? (
+                    <img src={user.avatar} alt="" style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{
+                      width: 24, height: 24, borderRadius: '50%', background: '#263238',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.7rem', color: '#4fc3f7', fontWeight: 'bold',
+                    }}>
+                      {user.alias?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                  )}
+                  <span>{user.alias || user.email}</span>
+                  <span style={{ color: '#81c784', fontSize: '0.85rem' }}>({user.points} pt)</span>
+                </Link>
                 <button onClick={handleLogout} className="btn-logout">Esci</button>
               </>
             ) : (
@@ -67,6 +82,7 @@ function App() {
             <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/" />} />
             <Route path="/register" element={!user ? <Register setUser={setUser} /> : <Navigate to="/" />} />
             <Route path="/" element={user ? <Home user={user} /> : <Navigate to="/login" />} />
+            <Route path="/profile" element={user ? <Profile user={user} setUser={setUser} /> : <Navigate to="/login" />} />
             <Route path="/leaderboard" element={user ? <Leaderboard /> : <Navigate to="/login" />} />
             <Route path="/admin/users" element={user?.role === 'admin' ? <AdminUsers /> : <Navigate to="/" />} />
             <Route path="/admin/events" element={user?.role === 'admin' ? <AdminEvents /> : <Navigate to="/" />} />

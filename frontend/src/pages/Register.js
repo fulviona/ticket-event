@@ -4,6 +4,7 @@ import { register } from '../services/api';
 
 function Register({ setUser }) {
   const [form, setForm] = useState({
+    alias: '',
     email: '',
     password: '',
     phone: '',
@@ -65,6 +66,10 @@ function Register({ setUser }) {
       <h2>Registrazione</h2>
       {error && <div className="error-msg">{error}</div>}
       <form onSubmit={handleSubmit}>
+        <div className="form-group">
+          <label>Alias (nome pubblico, 3-20 caratteri)</label>
+          <input type="text" name="alias" value={form.alias} onChange={handleChange} required minLength={3} maxLength={20} placeholder="Es: ProPlayer99" />
+        </div>
         <div className="form-group">
           <label>Email</label>
           <input type="email" name="email" value={form.email} onChange={handleChange} required />

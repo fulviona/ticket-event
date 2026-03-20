@@ -271,13 +271,44 @@ router.get('/my', auth, async (req, res) => {
   }
 });
 
+// Condividi/nascondi un ticket
+router.patch('/:id/share', auth, async (req, res) => {
+  try {
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) {
+      return res.status(404).json({ message: 'Ticket non trovato.' });
+    }
+    if (ticket.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Non puoi condividere ticket di altri.' });
+    }
+    ticket.shared = !ticket.shared;
+    await ticket.save();
+    res.json({ message: ticket.shared ? 'Ticket condiviso!' : 'Ticket nascosto.', ticket });
+  } catch (err) {
+    res.status(500).json({ message: 'Errore del server.' });
+  }
+});
+
+// Ticket condivisi da tutti i player (feed pubblico)
+router.get('/shared', auth, async (req, res) => {
+  try {
+    const tickets = await Ticket.find({ shared: true })
+      .populate('user', 'alias avatar points')
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.json(tickets);
+  } catch (err) {
+    res.status(500).json({ message: 'Errore del server.' });
+  }
+});
+
 // Tutti i ticket (admin)
 router.get('/all', auth, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Accesso riservato.' });
     }
-    const tickets = await Ticket.find().populate('user', 'email phone').sort({ createdAt: -1 });
+    const tickets = await Ticket.find().populate('user', 'email phone alias').sort({ createdAt: -1 });
     res.json(tickets);
   } catch (err) {
     res.status(500).json({ message: 'Errore del server.' });
