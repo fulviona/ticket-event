@@ -112,6 +112,10 @@ router.post(
         return res.status(400).json({ message: 'Credenziali non valide.' });
       }
 
+      if (user.blocked) {
+        return res.status(403).json({ message: 'Account bloccato. Contatta l\'amministratore.' });
+      }
+
       const isMatch = await user.comparePassword(password);
       if (!isMatch) {
         return res.status(400).json({ message: 'Credenziali non valide.' });

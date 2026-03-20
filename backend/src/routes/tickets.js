@@ -315,6 +315,41 @@ router.get('/all', auth, async (req, res) => {
   }
 });
 
+// Admin: aggiorna ticket (bets, stake, potentialWin, totalOdds, status)
+router.patch('/:id/edit', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Accesso riservato.' });
+    }
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) {
+      return res.status(404).json({ message: 'Ticket non trovato.' });
+    }
+
+    const { bets, stake, potentialWin, totalOdds, status } = req.body;
+    if (bets !== undefined) ticket.bets = bets;
+    if (stake !== undefined) ticket.stake = stake;
+    if (potentialWin !== undefined) ticket.potentialWin = potentialWin;
+    if (totalOdds !== undefined) ticket.totalOdds = totalOdds;
+    if (status && ['pending', 'won', 'lost'].includes(status)) {
+      const previousStatus = ticket.status;
+      ticket.status = status;
+      const User = require('../models/User');
+      if (status === 'won' && previousStatus !== 'won') {
+        await User.findByIdAndUpdate(ticket.user, { $inc: { points: 1 } });
+      } else if (previousStatus === 'won' && status !== 'won') {
+        await User.findByIdAndUpdate(ticket.user, { $inc: { points: -1 } });
+      }
+    }
+
+    await ticket.save();
+    const updated = await Ticket.findById(ticket._id).populate('user', 'email phone alias');
+    res.json({ message: 'Ticket aggiornato.', ticket: updated });
+  } catch (err) {
+    res.status(500).json({ message: 'Errore del server.' });
+  }
+});
+
 // Aggiorna stato ticket (admin - refertazione)
 router.patch('/:id/status', auth, async (req, res) => {
   try {

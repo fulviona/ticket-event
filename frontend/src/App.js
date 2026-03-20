@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import Profile from './pages/Profile';
 import Leaderboard from './pages/Leaderboard';
 import AdminUsers from './pages/AdminUsers';
+import AdminTickets from './pages/AdminTickets';
 import AdminEvents from './pages/AdminEvents';
 import CookieBanner from './components/CookieBanner';
 import './App.css';
@@ -48,6 +49,7 @@ function App() {
                 {user.role === 'admin' && (
                   <>
                     <Link to="/admin/users">Utenti</Link>
+                    <Link to="/admin/tickets">Ticket</Link>
                     <Link to="/admin/events">Eventi</Link>
                   </>
                 )}
@@ -85,6 +87,7 @@ function App() {
             <Route path="/profile" element={user ? <Profile user={user} setUser={setUser} /> : <Navigate to="/login" />} />
             <Route path="/leaderboard" element={user ? <Leaderboard /> : <Navigate to="/login" />} />
             <Route path="/admin/users" element={user?.role === 'admin' ? <AdminUsers /> : <Navigate to="/" />} />
+            <Route path="/admin/tickets" element={user?.role === 'admin' ? <AdminTickets /> : <Navigate to="/" />} />
             <Route path="/admin/events" element={user?.role === 'admin' ? <AdminEvents /> : <Navigate to="/" />} />
           </Routes>
         </main>

@@ -22,6 +22,13 @@ export const updateProfile = (data) => api.patch('/users/me', data);
 export const getLeaderboard = () => api.get('/users/leaderboard');
 export const getAllUsers = () => api.get('/users/all');
 
+// Admin - Users
+export const updateUserAlias = (id, alias) => api.patch(`/users/${id}/alias`, { alias });
+export const toggleBlockUser = (id) => api.patch(`/users/${id}/block`);
+export const deleteUser = (id) => api.delete(`/users/${id}`);
+export const sendTempPassword = (id) => api.patch(`/users/${id}/temp-password`);
+export const exportUsersExcel = () => api.get('/users/export/excel', { responseType: 'blob' });
+
 // Tickets
 export const uploadTicket = (formData) =>
   api.post('/tickets/upload', formData, {
@@ -32,6 +39,7 @@ export const getSharedTickets = () => api.get('/tickets/shared');
 export const toggleShareTicket = (id) => api.patch(`/tickets/${id}/share`);
 export const getAllTickets = () => api.get('/tickets/all');
 export const updateTicketStatus = (id, status) => api.patch(`/tickets/${id}/status`, { status });
+export const editTicket = (id, data) => api.patch(`/tickets/${id}/edit`, data);
 export const deleteTicket = (id) => api.delete(`/tickets/${id}`);
 
 // Events
