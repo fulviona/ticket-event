@@ -1,14 +1,21 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const Tesseract = require('tesseract.js');
 const Ticket = require('../models/Ticket');
 const { auth } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Assicura che la directory uploads esista
+const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
+  destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
     const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
     cb(null, uniqueName);
@@ -58,9 +65,22 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
       return res.status(400).json({ message: 'Nessuna immagine caricata.' });
     }
 
-    const { data: { text } } = await Tesseract.recognize(req.file.path, 'ita+eng');
+    console.log('File caricato:', req.file.path);
 
-    const bets = parseBets(text);
+    let text = '';
+    let bets = [];
+
+    try {
+      const result = await Tesseract.recognize(req.file.path, 'ita+eng');
+      text = result.data.text;
+      console.log('OCR completato. Testo estratto:', text.substring(0, 200));
+      bets = parseBets(text);
+    } catch (ocrErr) {
+      console.error('Errore OCR:', ocrErr.message);
+      // Salva comunque il ticket anche se OCR fallisce
+      text = 'OCR non disponibile';
+      bets = [{ match: 'Scommessa caricata', prediction: 'Da verificare manualmente', eventDate: new Date() }];
+    }
 
     const ticket = new Ticket({
       user: req.user._id,
@@ -76,6 +96,7 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
       ticket,
     });
   } catch (err) {
+    console.error('Errore upload ticket:', err);
     res.status(500).json({ message: 'Errore durante il caricamento.', error: err.message });
   }
 });
