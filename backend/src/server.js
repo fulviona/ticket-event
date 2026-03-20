@@ -26,6 +26,32 @@ app.use('/api/events', require('./routes/events'));
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+// Setup admin (one-time use, remove after first admin is created)
+app.post('/api/setup-admin', async (req, res) => {
+  try {
+    const User = require('./models/User');
+    const existing = await User.findOne({ email: 'admin@ticketevent.it' });
+    if (existing) {
+      existing.role = 'admin';
+      await existing.save();
+      return res.json({ message: 'Utente promosso ad admin.' });
+    }
+    const admin = new User({
+      email: 'admin@ticketevent.it',
+      password: 'Admin2026!',
+      phone: '+39000000000',
+      dateOfBirth: new Date('1990-01-01'),
+      privacyConsent: true,
+      cookieConsent: true,
+      role: 'admin',
+    });
+    await admin.save();
+    res.status(201).json({ message: 'Admin creato con successo.' });
+  } catch (err) {
+    res.status(500).json({ message: 'Errore: ' + err.message });
+  }
+});
+
 // Serve frontend in produzione (single repo deploy)
 if (process.env.NODE_ENV === 'production' && process.env.SERVE_FRONTEND === 'true') {
   app.use(express.static(path.join(__dirname, '..', '..', 'frontend', 'build')));
