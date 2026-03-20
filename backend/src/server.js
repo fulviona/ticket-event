@@ -10,7 +10,10 @@ const app = express();
 connectDB();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true,
+}));
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
@@ -20,8 +23,11 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/tickets', require('./routes/tickets'));
 app.use('/api/events', require('./routes/events'));
 
-// Serve frontend in produzione
-if (process.env.NODE_ENV === 'production') {
+// Health check
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+// Serve frontend in produzione (single repo deploy)
+if (process.env.NODE_ENV === 'production' && process.env.SERVE_FRONTEND === 'true') {
   app.use(express.static(path.join(__dirname, '..', '..', 'frontend', 'build')));
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '..', '..', 'frontend', 'build', 'index.html'));

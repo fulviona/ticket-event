@@ -1,0 +1,11 @@
+{
+  "name": "ticket-event",
+  "version": "1.0.0",
+  "description": "Ticket Event - webapp scommesse sportive",
+  "scripts": {
+    "install-all": "cd backend && npm install && cd ../frontend && npm install",
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && node src/server.js",
+    "render-build": "cd backend && npm install && cd ../frontend && npm install && npm run build"
+  }
+}
