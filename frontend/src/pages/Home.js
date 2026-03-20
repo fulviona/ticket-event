@@ -103,6 +103,11 @@ function Home({ user }) {
                 {new Date(ticket.createdAt).toLocaleDateString('it-IT', {
                   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
                 })}
+                {ticket.ticketId && (
+                  <span style={{ marginLeft: '0.5rem', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                    ID: {ticket.ticketId.substring(0, 12)}...
+                  </span>
+                )}
               </span>
               <span className={`ticket-status ${ticket.status}`}>
                 {ticket.status === 'won' ? 'Vinto' : ticket.status === 'lost' ? 'Perso' : 'In attesa'}
@@ -110,7 +115,24 @@ function Home({ user }) {
             </div>
             {ticket.bets.map((bet, i) => (
               <div key={i} className="bet-item">
-                <strong>{bet.match}</strong> - {bet.prediction}
+                <strong>{bet.match}</strong> - <span style={{ color: '#4fc3f7' }}>{bet.prediction}</span>
+                {bet.betType && bet.betType !== 'N/D' && (
+                  <span style={{
+                    marginLeft: '0.5rem',
+                    background: '#1a3a4a',
+                    padding: '0.1rem 0.4rem',
+                    borderRadius: '4px',
+                    fontSize: '0.75rem',
+                    color: '#80cbc4',
+                  }}>
+                    {bet.betType}
+                  </span>
+                )}
+                {bet.odds && (
+                  <span style={{ marginLeft: '0.5rem', color: '#ffb74d', fontSize: '0.8rem' }}>
+                    @{bet.odds.toFixed(2)}
+                  </span>
+                )}
                 {bet.eventDate && (
                   <span style={{ color: '#78909c', marginLeft: '0.5rem', fontSize: '0.8rem' }}>
                     ({new Date(bet.eventDate).toLocaleDateString('it-IT')})
@@ -118,6 +140,13 @@ function Home({ user }) {
                 )}
               </div>
             ))}
+            {(ticket.stake || ticket.potentialWin || ticket.totalOdds) && (
+              <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #2a3a4a', fontSize: '0.85rem', display: 'flex', gap: '1rem' }}>
+                {ticket.stake && <span>Puntata: <strong>{ticket.stake.toFixed(2)}€</strong></span>}
+                {ticket.totalOdds && <span style={{ color: '#ffb74d' }}>Quota: {ticket.totalOdds.toFixed(2)}</span>}
+                {ticket.potentialWin && <span style={{ color: '#66bb6a' }}>Vincita: <strong>{ticket.potentialWin.toFixed(2)}€</strong></span>}
+              </div>
+            )}
           </div>
         ))}
       </div>

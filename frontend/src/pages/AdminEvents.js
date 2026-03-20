@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getEvents, createEvent, deleteEvent, getAllTickets, updateTicketStatus } from '../services/api';
+import { getEvents, createEvent, deleteEvent, getAllTickets, updateTicketStatus, deleteTicket } from '../services/api';
 
 function AdminEvents() {
   const [events, setEvents] = useState([]);
@@ -52,6 +52,16 @@ function AdminEvents() {
       loadData();
     } catch (err) {
       console.error('Errore aggiornamento:', err);
+    }
+  };
+
+  const handleDeleteTicket = async (id) => {
+    if (!window.confirm('Sei sicuro di voler eliminare questo ticket?')) return;
+    try {
+      await deleteTicket(id);
+      loadData();
+    } catch (err) {
+      console.error('Errore eliminazione ticket:', err);
     }
   };
 
@@ -147,7 +157,9 @@ function AdminEvents() {
             <thead>
               <tr>
                 <th>Utente</th>
+                <th>ID Ticket</th>
                 <th>Giocate</th>
+                <th>Importi</th>
                 <th>Stato</th>
                 <th>Data</th>
                 <th>Azioni</th>
@@ -157,12 +169,39 @@ function AdminEvents() {
               {tickets.map((ticket) => (
                 <tr key={ticket._id}>
                   <td>{ticket.user?.email || 'N/D'}</td>
+                  <td style={{ fontSize: '0.75rem', fontFamily: 'monospace', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {ticket.ticketId || '-'}
+                  </td>
                   <td>
                     {ticket.bets.map((b, i) => (
-                      <div key={i} style={{ fontSize: '0.85rem' }}>
-                        {b.match} - {b.prediction}
+                      <div key={i} style={{ fontSize: '0.85rem', marginBottom: '0.3rem' }}>
+                        <strong>{b.match}</strong>
+                        <br />
+                        <span style={{ color: '#4fc3f7' }}>{b.prediction}</span>
+                        {b.betType && b.betType !== 'N/D' && (
+                          <span style={{
+                            marginLeft: '0.5rem',
+                            background: '#1a3a4a',
+                            padding: '0.1rem 0.4rem',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            color: '#80cbc4',
+                          }}>
+                            {b.betType}
+                          </span>
+                        )}
+                        {b.odds && (
+                          <span style={{ marginLeft: '0.5rem', color: '#ffb74d', fontSize: '0.8rem' }}>
+                            @{b.odds.toFixed(2)}
+                          </span>
+                        )}
                       </div>
                     ))}
+                  </td>
+                  <td style={{ fontSize: '0.85rem' }}>
+                    {ticket.stake && <div>Puntata: {ticket.stake.toFixed(2)}€</div>}
+                    {ticket.potentialWin && <div style={{ color: '#66bb6a' }}>Vincita: {ticket.potentialWin.toFixed(2)}€</div>}
+                    {ticket.totalOdds && <div style={{ color: '#ffb74d' }}>Quota: {ticket.totalOdds.toFixed(2)}</div>}
                   </td>
                   <td>
                     <span className={`ticket-status ${ticket.status}`}>
@@ -171,15 +210,24 @@ function AdminEvents() {
                   </td>
                   <td>{new Date(ticket.createdAt).toLocaleDateString('it-IT')}</td>
                   <td>
-                    <div style={{ display: 'flex', gap: '0.3rem' }}>
-                      <button className="btn-small btn-success" onClick={() => handleTicketStatus(ticket._id, 'won')}>
-                        Vinto
-                      </button>
-                      <button className="btn-small btn-danger" onClick={() => handleTicketStatus(ticket._id, 'lost')}>
-                        Perso
-                      </button>
-                      <button className="btn-small btn-warning" onClick={() => handleTicketStatus(ticket._id, 'pending')}>
-                        Attesa
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <div style={{ display: 'flex', gap: '0.3rem' }}>
+                        <button className="btn-small btn-success" onClick={() => handleTicketStatus(ticket._id, 'won')}>
+                          Vinto
+                        </button>
+                        <button className="btn-small btn-danger" onClick={() => handleTicketStatus(ticket._id, 'lost')}>
+                          Perso
+                        </button>
+                        <button className="btn-small btn-warning" onClick={() => handleTicketStatus(ticket._id, 'pending')}>
+                          Attesa
+                        </button>
+                      </div>
+                      <button
+                        className="btn-small"
+                        style={{ background: '#b71c1c', color: 'white', fontSize: '0.75rem' }}
+                        onClick={() => handleDeleteTicket(ticket._id)}
+                      >
+                        Elimina Ticket
                       </button>
                     </div>
                   </td>

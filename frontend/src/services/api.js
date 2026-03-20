@@ -29,6 +29,7 @@ export const uploadTicket = (formData) =>
 export const getMyTickets = () => api.get('/tickets/my');
 export const getAllTickets = () => api.get('/tickets/all');
 export const updateTicketStatus = (id, status) => api.patch(`/tickets/${id}/status`, { status });
+export const deleteTicket = (id) => api.delete(`/tickets/${id}`);
 
 // Events
 export const getEvents = () => api.get('/events');
