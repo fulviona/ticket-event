@@ -499,7 +499,7 @@ function isBetDescriptionLine(line) {
   // Non è una riga di match
   if (parseMatchLine(line)) return false;
   // Non è una riga di riepilogo o metadati ticket
-  if (/^(quota|importo|vincita|puntata|giocata\s*del|aams|adm|codice|data[:\s]|ora[:\s]|bonus|ib[-]|cc[-]|nc[-]|pv[-]|pal[:\s]|avv[:\s]|singola|multipla|sistema|totale\s*importo|importo\s*scommesso|concession|punto\s*vendita|ricevuta|stato[:\s])/i.test(line.trim())) return false;
+  if (/^(quota|importo|vincita|puntata|giocata\s*del|aams|adm|codice|data[:\s]|ora[:\s]|bonus|ib[-]|cc[-]|nc[-]|pv[-]|pal[:\s]|avv[:\s]|singola|multipla|sistema|totale\s*importo|importo\s*scommesso|concession|punto\s*vendita|ricevuta|stato[:\s]|quota\s*totale)/i.test(line.trim())) return false;
   // Non è un barcode o codice operatore
   if (/^[A-Z]{2,3}[-]\d/i.test(line.trim())) return false;
   // Non è troppo corta (probabilmente rumore OCR)
@@ -585,9 +585,18 @@ function parseBets(text) {
     } else if (pendingBetLines.length > 0 && /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?|\d\/[1X2](?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?)\s+\d+[.,]\d{1,2}\s*$/i.test(line)) {
       // Riga con selezione+quota (es: "SI 2.05", "OVER 1.33", "1X + OVER 1.31") → scommessa precedente
       pendingBetLines.push(line);
+    } else if (pendingBetLines.length > 0 && /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?|\d\/[1X2](?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?)\s*$/i.test(line)) {
+      // Riga con solo selezione (es: "SI", "OVER") → appartiene alla scommessa precedente
+      pendingBetLines.push(line);
     } else if (pendingBetLines.length > 0 && /^\s*\d+[.,]\d{1,2}\s*$/i.test(line)) {
       // Riga con solo quota (es: "2.05") → appartiene alla scommessa precedente
       pendingBetLines.push(line);
+    } else if (pendingBetLines.length > 0 && /^\s*(cartellino|marcatore|risultato|ammonizione|espulsione|autogol|autorete|rigore|corner|tiri|assist|fallo|fuorigioco|parata)\s*$/i.test(line)) {
+      // Etichette tipo scommessa Sportium → ignora senza flush
+      continue;
+    } else if (pendingBetLines.length > 0 && /^\s*(SI|NO|S[IÌ])\s*[|]\s*\d+[.,]\d{1,2}\s*$/i.test(line)) {
+      // Formato "SI | 4.32" (Sportium con separatore) → scommessa precedente
+      pendingBetLines.push(line.replace(/[|]/g, ' '));
     } else {
       // Riga non scommessa (summary, metadata, etc.) → flush pending
       flushPendingBet();
