@@ -497,26 +497,45 @@ function startsNewBet(line) {
 function preprocessPastedText(text) {
   let lines = text.split('\n');
 
-  // Fase 1: Unisci "Team1 \n vs \n Team2" in una sola riga
+  // Fase 1: Unisci "Team1 \n vs \n Team2" o "Team1 \n vs Team2" in una sola riga
   const merged = [];
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    // Se la riga è "vs" o "vs." da sola, unisci con la riga precedente e successiva
+    // Caso 1: la riga è "vs" o "vs." da sola → unisci riga precedente + "vs" + riga successiva
     if (/^\s*vs\.?\s*$/i.test(trimmed) && merged.length > 0 && i + 1 < lines.length) {
       const team1 = merged.pop();
       const team2 = lines[i + 1].trim();
       merged.push(team1 + ' vs ' + team2);
       i++; // Salta la riga team2
-    } else {
+    }
+    // Caso 2: la riga inizia con "vs " (es: "vs Pisa") → unisci con la riga precedente
+    else if (/^\s*vs\.?\s+\S/i.test(trimmed) && merged.length > 0) {
+      const team1 = merged.pop();
+      if (team1.length < 50 && !/^\d/.test(team1) && !/ESITO|GOAL|UNDER|OVER|DOPPIA|RISULTATO/i.test(team1)) {
+        merged.push(team1 + ' ' + trimmed);
+      } else {
+        merged.push(team1);
+        merged.push(trimmed);
+      }
+    }
+    // Caso 3: la riga precedente finisce con "vs" o "vs." → unisci
+    else if (merged.length > 0 && /\bvs\.?\s*$/i.test(merged[merged.length - 1]) && trimmed.length > 0) {
+      const prev = merged.pop();
+      merged.push(prev + ' ' + trimmed);
+    }
+    else {
       merged.push(trimmed);
     }
   }
 
-  // Fase 2: Filtra righe di rumore (metadata, UI elements)
-  const NOISE_RE = /^\s*(stato\s*:\s*\w+|giocata\s*$|venduto|stampa|condividi\s*cashout|condividicashout|stampa\s*condividi\s*cashout|stampacondividicashout|condividi|cashout|importo\s*bonus|vincita\s*potenziale|giocata\s*del\s*:)/i;
+  // Fase 2: Filtra righe di rumore (metadata, UI elements, testo sito)
+  const NOISE_RE = /^\s*(stato\s*:\s*\w+|giocata\s*$|venduto|stampa|carica\s*stampa|condividi\s*cashout|condividicashout|stampa\s*condividi\s*cashout|stampacondividicashout|condividi|cashout|importo\s*bonus|vincita\s*potenziale|giocata\s*del\s*:|login\s*registrati|casin[oò]\s*casin[oò]|sportium\s*[-–]|probabilit[aà]\s*di\s*vincita|il\s*gioco\s*[eè]\s*vietato|gioca\s*con\s*moderazione|cookie\s*(?:policy|manage)|carica\s*stampa)/i;
   const filtered = merged.filter((l) => {
-    if (!l.trim()) return false;
-    if (NOISE_RE.test(l.trim())) return false;
+    const t = l.trim();
+    if (!t) return false;
+    if (NOISE_RE.test(t)) return false;
+    // Righe troppo lunghe (>120 char) senza "vs" sono probabilmente testo del sito
+    if (t.length > 120 && !/\bvs\.?\b/i.test(t)) return false;
     return true;
   });
 
@@ -544,7 +563,7 @@ function parseBets(text) {
   const ODDS_ONLY_RE = /^\s*(\d+[.,]\d{1,2})\s*$/;
   const BET_LABEL_RE = /^\s*(cartellino|marcatore|risultato|ammonizione|espulsione|autogol|autorete|rigore|corner|tiri|assist|fallo|fuorigioco|parata|gol)\s*$/i;
   // Tipo scommessa Sportium: "ESITO FINALE 1X2", "GOAL/NO GOAL", "UNDER/OVER 2,5", etc.
-  const BET_TYPE_LINE_RE = /^\s*(ESITO\s+FINALE\s+1X2|GOAL\s*\/\s*NO\s*GOAL|UNDER\s*\/\s*OVER\s*[\d.,]*|DOPPIA\s+CHANCE|PARZIALE\s*\/?\s*FINALE|HANDICAP|MULTIGOL|COMBO\s+\w+|SOMMA\s+GOAL|MARCATORE|RIGORE|ESPULSIONE|CARTELLINI|AUTORETE|CORNER|ANGOLI|RISULTATO\s+ESATTO|PRIMO\s+TEMPO|SECONDO\s+TEMPO|SEGNA\s*GOL|VINCE\s*A\s*ZERO|DC\s*\/?\s*GNG|COMBO\s+SCOMMESSA|GOAL\/NO\s*GOAL)\s*$/i;
+  const BET_TYPE_LINE_RE = /^\s*(ESITO\s+FINALE\s+1X2|RISULTATO\s+FINALE\s+1X2|GOAL\s*\/\s*NO\s*GOAL|UNDER\s*\/\s*OVER\s*[\d.,]*|DOPPIA\s+CHANCE|PARZIALE\s*\/?\s*FINALE|HANDICAP|MULTIGOL|COMBO\s+\w+|SOMMA\s+GOAL|MARCATORE|RIGORE|ESPULSIONE|CARTELLINI|AUTORETE|CORNER|ANGOLI|RISULTATO\s+ESATTO|PRIMO\s+TEMPO|SECONDO\s+TEMPO|SEGNA\s*GOL|VINCE\s*A\s*ZERO|DC\s*\/?\s*GNG|COMBO\s+SCOMMESSA|GOAL\/NO\s*GOAL)\s*$/i;
 
   const flushPendingBet = () => {
     if (pendingBetLines.length === 0) return;
@@ -802,7 +821,7 @@ async function parseSportiumHtml(html, url) {
     .replace(/<img[^>]*>/gi, '');
 
   // 2. Converti struttura HTML in newlines
-  const text = cleanHtml
+  let text = cleanHtml
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
@@ -823,7 +842,28 @@ async function parseSportiumHtml(html, url) {
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ');
 
-  console.log('Sportium HTML parsed text (first 500):', text.substring(0, 500));
+  // 3. Rimuovi rumore del sito Sportium (header, nav, footer, bottoni)
+  const junkPatterns = [
+    /Sportium\s*[-–]\s*Scommesse.*?Probabilit[àa]\s*di\s*vincita\s*Sport/gi,
+    /Casin[oò]\s*Casin[oò]\s*Live\s*Poker\s*Altri\s*giochi.*?(?:LOGIN|REGISTRATI)\s*/gi,
+    /Carica\s*Stampa/gi,
+    /Condividi\s*(?:su|ticket)/gi,
+    /Cookie\s*(?:Policy|Notice|Manage|Settings).*?\n/gi,
+    /Gioca\s*con\s*moderazione.*?\n/gi,
+    /Il\s*gioco\s*[eè]\s*vietato\s*ai\s*minori.*?\n/gi,
+    /Concessione\s*(?:ADM|AAMS).*?\n/gi,
+    /Probabilit[aà]\s*di\s*vincita\s*Sport/gi,
+    /LOGIN\s*REGISTRATI/gi,
+    /^\s*\d+\s*$/gm,  // righe con solo numeri (badge notifiche)
+  ];
+  for (const pat of junkPatterns) {
+    text = text.replace(pat, '\n');
+  }
+  text = text.replace(/\n{3,}/g, '\n\n');
+
+  // Log del testo pulito per debug
+  const textLines = text.split('\n').filter(l => l.trim());
+  console.log('Sportium parsed text (first 20 lines):', textLines.slice(0, 20));
 
   // Cerca AAMS/ticketId nel testo
   if (!ticketId) {
