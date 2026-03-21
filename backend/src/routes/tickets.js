@@ -965,9 +965,11 @@ async function fetchWithScrapingService(url) {
   }
 
   for (const service of services) {
-    try {
-      console.log(`[fetchWithScrapingService] Provo ${service.name}...`);
-      const serviceUrl = service.buildUrl();
+    // Retry fino a 3 volte per errori temporanei (500, timeout)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`[fetchWithScrapingService] Provo ${service.name} (tentativo ${attempt}/3)...`);
+        const serviceUrl = service.buildUrl();
 
       const html = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('Timeout 60s')), 60000);
@@ -1011,9 +1013,16 @@ async function fetchWithScrapingService(url) {
         return { html, text };
       }
       console.log(`[fetchWithScrapingService] ${service.name} bloccato (${text.length} char)`);
+      break; // Bloccato = non ritentare, passa al servizio successivo
     } catch (e) {
-      console.log(`[fetchWithScrapingService] ${service.name} errore: ${e.message}`);
+      console.log(`[fetchWithScrapingService] ${service.name} errore tentativo ${attempt}: ${e.message}`);
+      if (attempt < 3) {
+        const waitMs = attempt * 3000; // 3s, 6s
+        console.log(`[fetchWithScrapingService] Attendo ${waitMs / 1000}s prima di riprovare...`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+      }
     }
+    } // fine retry loop
   }
   return null;
 }
