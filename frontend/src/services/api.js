@@ -51,4 +51,7 @@ export const updateEvent = (id, data) => api.put(`/events/${id}`, data);
 export const deleteEvent = (id) => api.delete(`/events/${id}`);
 export const importEvents = (events) => api.post('/events/import', { events });
 
+// Analytics
+export const getAnalytics = (date) => api.get('/analytics', { params: { date } });
+
 export default api;

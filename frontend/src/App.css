@@ -401,6 +401,99 @@ body {
   padding: 1.5rem;
 }
 
+/* Analytics */
+.analytics-date-input {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid #37474f;
+  border-radius: 4px;
+  background: #263238;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.analytics-date-input:focus {
+  outline: none;
+  border-color: #4fc3f7;
+}
+
+.analytics-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+.analytics-section {
+  background: #162029;
+  border-radius: 8px;
+  padding: 1.2rem;
+  margin-bottom: 1.2rem;
+}
+
+.analytics-section-title {
+  color: #4fc3f7;
+  font-size: 1rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #263238;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.8rem;
+}
+
+.analytics-card {
+  background: #1a2530;
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.analytics-card-value {
+  font-size: 1.4rem;
+  font-weight: bold;
+}
+
+.analytics-card-label {
+  font-size: 0.75rem;
+  color: #78909c;
+  text-transform: uppercase;
+}
+
+.analytics-top-users {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.analytics-top-user {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.5rem 0.8rem;
+  background: #1a2530;
+  border-radius: 4px;
+}
+
+.analytics-rank {
+  font-weight: bold;
+  min-width: 30px;
+}
+
+.analytics-top-alias {
+  flex: 1;
+  color: #e0e0e0;
+}
+
+.analytics-top-points {
+  color: #81c784;
+  font-weight: bold;
+}
+
 /* Admin */
 .admin-page {
   background: #1a2530;
@@ -461,6 +554,45 @@ body {
 .btn-warning { background: #ff9800; color: white; }
 
 .btn-small:hover { opacity: 0.85; }
+
+/* Admin User Cards */
+.admin-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.admin-user-card {
+  background: #162029;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  border-left: 3px solid #37474f;
+}
+
+.admin-user-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.admin-user-card-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.8rem;
+  color: #90a4ae;
+  margin-bottom: 0.5rem;
+}
+
+.admin-user-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid #263238;
+}
 
 /* Cookie Banner */
 .cookie-banner {

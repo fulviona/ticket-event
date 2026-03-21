@@ -127,93 +127,75 @@ function AdminUsers() {
         </div>
       )}
 
-      <div style={{ overflowX: 'auto' }}>
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Alias</th>
-              <th>Email</th>
-              <th>Telefono</th>
-              <th>Data nascita</th>
-              <th>Punti</th>
-              <th>Newsletter</th>
-              <th>Stato</th>
-              <th>Ruolo</th>
-              <th>Registrato il</th>
-              <th>Azioni</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr key={user._id} style={{ opacity: user.blocked ? 0.5 : 1 }}>
-                <td>
-                  {editingAlias === user._id ? (
-                    <div style={{ display: 'flex', gap: '0.3rem' }}>
-                      <input
-                        type="text"
-                        value={aliasValue}
-                        onChange={(e) => setAliasValue(e.target.value)}
-                        style={{ width: '120px', padding: '0.3rem', background: '#263238', border: '1px solid #4fc3f7', color: '#e0e0e0', borderRadius: '3px' }}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSaveAlias(user._id)}
-                      />
-                      <button className="btn-small btn-success" style={{ fontSize: '0.7rem' }} onClick={() => handleSaveAlias(user._id)}>OK</button>
-                      <button className="btn-small" style={{ fontSize: '0.7rem', background: '#546e7a', color: 'white' }} onClick={() => setEditingAlias(null)}>X</button>
-                    </div>
-                  ) : (
-                    <span
-                      style={{ cursor: 'pointer', color: user.alias ? '#4fc3f7' : '#ef5350', textDecoration: 'underline dotted' }}
-                      onClick={() => handleEditAlias(user)}
-                      title="Clicca per modificare alias"
-                    >
-                      {user.alias || 'Nessun alias'}
-                    </span>
-                  )}
-                </td>
-                <td>{user.email}</td>
-                <td>{user.phone}</td>
-                <td>{new Date(user.dateOfBirth).toLocaleDateString('it-IT')}</td>
-                <td style={{ fontWeight: 'bold', color: '#4fc3f7' }}>{user.points}</td>
-                <td>{user.newsletterConsent ? 'Si' : 'No'}</td>
-                <td>
-                  {user.blocked ? (
-                    <span style={{ color: '#ef5350', fontWeight: 'bold' }}>Bloccato</span>
-                  ) : (
-                    <span style={{ color: '#66bb6a' }}>Attivo</span>
-                  )}
-                </td>
-                <td>{user.role}</td>
-                <td>{new Date(user.createdAt).toLocaleDateString('it-IT')}</td>
-                <td>
-                  {user.role !== 'admin' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', minWidth: '130px' }}>
-                      <button
-                        className="btn-small"
-                        style={{ background: user.blocked ? '#66bb6a' : '#ff9800', color: 'white', fontSize: '0.75rem' }}
-                        onClick={() => handleBlock(user._id)}
-                      >
-                        {user.blocked ? 'Sblocca' : 'Blocca'}
-                      </button>
-                      <button
-                        className="btn-small"
-                        style={{ background: '#7b1fa2', color: 'white', fontSize: '0.75rem' }}
-                        onClick={() => handleTempPassword(user._id)}
-                      >
-                        Password temp.
-                      </button>
-                      <button
-                        className="btn-small btn-danger"
-                        style={{ fontSize: '0.75rem' }}
-                        onClick={() => handleDelete(user._id)}
-                      >
-                        Elimina
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="admin-users-list">
+        {users.map((user) => (
+          <div key={user._id} className="admin-user-card" style={{ opacity: user.blocked ? 0.5 : 1 }}>
+            <div className="admin-user-card-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                {editingAlias === user._id ? (
+                  <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      value={aliasValue}
+                      onChange={(e) => setAliasValue(e.target.value)}
+                      style={{ width: '120px', padding: '0.3rem', background: '#263238', border: '1px solid #4fc3f7', color: '#e0e0e0', borderRadius: '3px', fontSize: '0.85rem' }}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveAlias(user._id)}
+                    />
+                    <button className="btn-small btn-success" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem' }} onClick={() => handleSaveAlias(user._id)}>OK</button>
+                    <button className="btn-small" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', background: '#546e7a', color: 'white' }} onClick={() => setEditingAlias(null)}>X</button>
+                  </div>
+                ) : (
+                  <span
+                    style={{ cursor: 'pointer', color: user.alias ? '#4fc3f7' : '#ef5350', textDecoration: 'underline dotted', fontWeight: 'bold', fontSize: '1rem' }}
+                    onClick={() => handleEditAlias(user)}
+                    title="Clicca per modificare alias"
+                  >
+                    {user.alias || 'Nessun alias'}
+                  </span>
+                )}
+                <span style={{ color: '#78909c', fontSize: '0.8rem' }}>({user.role})</span>
+                {user.blocked ? (
+                  <span style={{ color: '#ef5350', fontSize: '0.75rem', fontWeight: 'bold', background: '#3e1111', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>Bloccato</span>
+                ) : (
+                  <span style={{ color: '#66bb6a', fontSize: '0.75rem', background: '#112211', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>Attivo</span>
+                )}
+              </div>
+              <span style={{ fontWeight: 'bold', color: '#4fc3f7', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>{user.points} pt</span>
+            </div>
+            <div className="admin-user-card-details">
+              <span title={user.email} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</span>
+              <span>{user.phone}</span>
+              <span>Nato: {new Date(user.dateOfBirth).toLocaleDateString('it-IT')}</span>
+              <span>Reg: {new Date(user.createdAt).toLocaleDateString('it-IT')}</span>
+              <span>NL: {user.newsletterConsent ? 'Si' : 'No'}</span>
+            </div>
+            {user.role !== 'admin' && (
+              <div className="admin-user-card-actions">
+                <button
+                  className="btn-small"
+                  style={{ background: user.blocked ? '#66bb6a' : '#ff9800', color: 'white', fontSize: '0.75rem' }}
+                  onClick={() => handleBlock(user._id)}
+                >
+                  {user.blocked ? 'Sblocca' : 'Blocca'}
+                </button>
+                <button
+                  className="btn-small"
+                  style={{ background: '#7b1fa2', color: 'white', fontSize: '0.75rem' }}
+                  onClick={() => handleTempPassword(user._id)}
+                >
+                  Password temp.
+                </button>
+                <button
+                  className="btn-small btn-danger"
+                  style={{ fontSize: '0.75rem' }}
+                  onClick={() => handleDelete(user._id)}
+                >
+                  Elimina
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

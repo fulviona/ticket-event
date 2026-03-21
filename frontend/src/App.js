@@ -9,6 +9,7 @@ import Leaderboard from './pages/Leaderboard';
 import AdminUsers from './pages/AdminUsers';
 import AdminTickets from './pages/AdminTickets';
 import AdminEvents from './pages/AdminEvents';
+import AdminAnalytics from './pages/AdminAnalytics';
 import Bacheca from './pages/Bacheca';
 import CookieBanner from './components/CookieBanner';
 import './App.css';
@@ -45,11 +46,16 @@ function App() {
           <div className="nav-links">
             {user ? (
               <>
-                <Link to="/">Home</Link>
-                <Link to="/bacheca">Bacheca</Link>
+                {user.role !== 'admin' && (
+                  <>
+                    <Link to="/">Home</Link>
+                    <Link to="/bacheca">Bacheca</Link>
+                  </>
+                )}
                 <Link to="/leaderboard">Classifica</Link>
                 {user.role === 'admin' && (
                   <>
+                    <Link to="/admin/analytics">Analytics</Link>
                     <Link to="/admin/users">Utenti</Link>
                     <Link to="/admin/tickets">Ticket</Link>
                     <Link to="/admin/events">Eventi</Link>
@@ -89,6 +95,7 @@ function App() {
             <Route path="/profile" element={user ? <Profile user={user} setUser={setUser} /> : <Navigate to="/login" />} />
             <Route path="/bacheca" element={user ? <Bacheca /> : <Navigate to="/login" />} />
             <Route path="/leaderboard" element={user ? <Leaderboard /> : <Navigate to="/login" />} />
+            <Route path="/admin/analytics" element={user?.role === 'admin' ? <AdminAnalytics /> : <Navigate to="/" />} />
             <Route path="/admin/users" element={user?.role === 'admin' ? <AdminUsers /> : <Navigate to="/" />} />
             <Route path="/admin/tickets" element={user?.role === 'admin' ? <AdminTickets /> : <Navigate to="/" />} />
             <Route path="/admin/events" element={user?.role === 'admin' ? <AdminEvents /> : <Navigate to="/" />} />
