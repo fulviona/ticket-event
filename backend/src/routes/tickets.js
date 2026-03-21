@@ -344,6 +344,8 @@ function parseMatchLine(line) {
 function parseBetLine(line) {
   // Normalizza separatori OCR: "|" "©" "®" → spazio, pulisci "[" "]" isolati (artefatti OCR)
   let normalized = line.replace(/[|@©®]/g, ' ').replace(/\s*[\[\]]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  // Fix OCR: "0VER" → "OVER", "UNDER" con typo, "S1" → "SI" (1 letto come I)
+  normalized = normalized.replace(/\b0VER\b/g, 'OVER').replace(/\bUNDER\b/gi, 'UNDER');
 
   let odds;
   let selection = '';
@@ -428,6 +430,39 @@ function parseBetLine(line) {
 
   // Pulizia residui
   description = description.replace(/\s+/g, ' ').trim();
+
+  // Post-processing: se la selezione non è stata estratta ma il prediction contiene ancora
+  // un pattern di selezione noto alla fine, estrailo ora
+  if (!selection && description) {
+    const postPatterns = [
+      // Combo parziale+over alla fine: "1/1+OVER", "X/2+UNDER"
+      /\s+(\d\/[1X2]\s*\+\s*(?:OVER|UNDER))\s*$/i,
+      // Combo doppia chance alla fine: "1X + OVER", "X2 + UNDER"
+      /\s+([1X2]{2}\s*\+\s*(?:OVER|UNDER))\s*$/i,
+      // Combo singola alla fine: "1 + OVER"
+      /\s+([1X2]\s*\+\s*(?:OVER|UNDER))\s*$/i,
+      // Parziale/finale alla fine: "1/1", "1/X", "X/2"
+      /\s+([1X2]\/[1X2])\s*$/i,
+      // Over/Under alla fine
+      /\s+(OVER|UNDER)\s*$/i,
+      // SI/NO alla fine
+      /\s+(SI|NO|S[IÌ])\s*$/i,
+      // GOAL/NO GOAL alla fine
+      /\s+(NO\s*GOAL|GOAL|GG|NG)\s*$/i,
+      // PARI/DISPARI alla fine
+      /\s+(PARI|DISPARI)\s*$/i,
+      // Doppia chance alla fine
+      /\s+(1X|X2|12)\s*$/i,
+    ];
+    for (const pp of postPatterns) {
+      const pm = description.match(pp);
+      if (pm) {
+        selection = pm[1].toUpperCase().replace('SÌ', 'SI').replace(/\s+/g, ' ').trim();
+        description = description.substring(0, pm.index).trim();
+        break;
+      }
+    }
+  }
 
   // Estrai nome giocatore: "COGNOME, NOME (SQUADRA)" o "COGNOME NOME (SQUADRA):"
   let player = '';
@@ -696,6 +731,164 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
       });
     }
     res.status(500).json({ message: 'Errore durante il caricamento.', error: err.message });
+  }
+});
+
+// ===== Import ticket da link Sportium =====
+// Fetcha la pagina HTML del ticket condiviso e ne estrae i dati strutturati
+async function parseSportiumHtml(html, url) {
+  const bets = [];
+  let stake = null;
+  let potentialWin = null;
+  let totalOdds = null;
+  let ticketId = null;
+  let playedAt = null;
+
+  // Estrai ticketId dall'URL: /ticket/<ID>
+  const urlIdMatch = url.match(/\/ticket\/([A-Z0-9]+)/i);
+  if (urlIdMatch) ticketId = urlIdMatch[1].toUpperCase();
+
+  // Rimuovi HTML tags ma conserva la struttura (newlines per blocchi)
+  const text = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/<\/td>/gi, ' | ')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<\/span>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&euro;/gi, '€')
+    .replace(/&amp;/gi, '&')
+    .replace(/&#\d+;/gi, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n');
+
+  console.log('Sportium HTML parsed text (first 500):', text.substring(0, 500));
+
+  // Cerca AAMS/ticketId nel testo
+  if (!ticketId) {
+    const aamsMatch = text.match(/AAMS[:\s]*([A-Z0-9]{10,})/i);
+    if (aamsMatch) ticketId = aamsMatch[1].toUpperCase();
+  }
+
+  // Estrai importi
+  const stakeMatch = text.match(/[Ii]mporto\s*(?:pagato|scommesso)[:\s]*([0-9.,]+)\s*€?/);
+  if (stakeMatch) stake = parseFloat(stakeMatch[1].replace(',', '.'));
+  const winMatch = text.match(/[Vv]incita\s*(?:potenziale)?[:\s]*([0-9.,]+)\s*€?/);
+  if (winMatch) potentialWin = parseFloat(winMatch[1].replace(',', '.'));
+  const totalOddsMatch = text.match(/[Qq]uota\s*(?:totale)?[:\s]*([0-9.,]+)/);
+  if (totalOddsMatch) totalOdds = parseFloat(totalOddsMatch[1].replace(',', '.'));
+  const playedAtMatch = text.match(/[Gg]iocata\s*del[:\s]*(\d{1,2}\/\d{1,2}\/\d{2,4})\s*(\d{1,2}[:.]\d{2})?/);
+  if (playedAtMatch) {
+    const [, dateStr, timeStr] = playedAtMatch;
+    const [d, m, y] = dateStr.split('/');
+    const fullY = y.length === 2 ? '20' + y : y;
+    if (timeStr) {
+      const [h, min] = timeStr.split(/[:.]/);
+      playedAt = new Date(fullY, m - 1, d, h, min);
+    } else {
+      playedAt = new Date(fullY, m - 1, d);
+    }
+  }
+
+  // Parsa come testo strutturato usando il parser principale
+  const parsedBets = parseBets(text);
+  if (parsedBets.length > 0) {
+    return { bets: parsedBets, stake, potentialWin, totalOdds, ticketId, playedAt };
+  }
+
+  return { bets: [{ match: 'Ticket da link', prediction: 'Da verificare manualmente', betType: 'N/D', eventDate: new Date() }], stake, potentialWin, totalOdds, ticketId, playedAt };
+}
+
+// Import ticket da URL (link condivisione Sportium o altri)
+router.post('/import-url', auth, async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) {
+      return res.status(400).json({ message: 'Inserisci un link valido.' });
+    }
+
+    // Valida che sia un URL di un concessionario .it
+    const urlDomain = url.match(/https?:\/\/([^/]+)/i);
+    if (!urlDomain || !urlDomain[1].endsWith('.it')) {
+      return res.status(400).json({
+        message: 'Sono accettati solo link di concessionari italiani (.it).',
+      });
+    }
+
+    // Estrai ticket ID dall'URL per controllo duplicati
+    const urlTicketId = url.match(/\/ticket\/([A-Z0-9]+)/i);
+    if (urlTicketId) {
+      const existing = await Ticket.findOne({ ticketId: urlTicketId[1].toUpperCase() });
+      if (existing) {
+        return res.status(400).json({
+          message: `Questo ticket è già stato caricato (ID: ${urlTicketId[1]}). Non è possibile caricare lo stesso ticket due volte.`,
+        });
+      }
+    }
+
+    // Fetch della pagina
+    let html;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'it-IT,it;q=0.9',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return res.status(400).json({
+          message: `Impossibile accedere al link (errore ${response.status}). Verifica che il link sia corretto.`,
+        });
+      }
+      html = await response.text();
+    } catch (fetchErr) {
+      console.error('Errore fetch URL:', fetchErr.message);
+      return res.status(400).json({
+        message: 'Impossibile accedere al link. Verifica la connessione e che il link sia corretto.',
+      });
+    }
+
+    // Rileva concessionario dall'URL
+    const concessionario = detectConcessionario(url);
+
+    // Parse HTML
+    const parsed = await parseSportiumHtml(html, url);
+
+    const ticket = new Ticket({
+      user: req.user._id,
+      ticketId: parsed.ticketId,
+      concessionario,
+      ocrRawText: html.substring(0, 50000), // Conserva HTML per reparse
+      bets: parsed.bets,
+      stake: parsed.stake,
+      potentialWin: parsed.potentialWin,
+      totalOdds: parsed.totalOdds,
+      playedAt: parsed.playedAt,
+    });
+
+    await ticket.save();
+
+    res.status(201).json({
+      message: 'Ticket importato dal link con successo!',
+      ticket,
+    });
+  } catch (err) {
+    console.error('Errore import URL:', err);
+    if (err.code === 11000) {
+      return res.status(400).json({
+        message: 'Questo ticket è già stato caricato.',
+      });
+    }
+    res.status(500).json({ message: 'Errore durante l\'importazione.', error: err.message });
   }
 });
 

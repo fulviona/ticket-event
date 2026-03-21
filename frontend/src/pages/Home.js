@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket, reparseTicket } from '../services/api';
+import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket, reparseTicket, importTicketUrl } from '../services/api';
 
 function Home({ user }) {
   const [tickets, setTickets] = useState([]);
@@ -10,6 +10,8 @@ function Home({ user }) {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [ticketUrl, setTicketUrl] = useState('');
+  const [importingUrl, setImportingUrl] = useState(false);
   const fileRef = useRef();
 
   useEffect(() => {
@@ -63,6 +65,23 @@ function Home({ user }) {
       setError(err.response?.data?.message || 'Errore durante il caricamento.');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleImportUrl = async () => {
+    if (!ticketUrl.trim()) return;
+    setImportingUrl(true);
+    setError('');
+    setMessage('');
+    try {
+      await importTicketUrl(ticketUrl.trim());
+      setMessage('Ticket importato dal link con successo!');
+      setTicketUrl('');
+      loadTickets();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Errore durante l\'importazione dal link.');
+    } finally {
+      setImportingUrl(false);
     }
   };
 
@@ -300,6 +319,38 @@ function Home({ user }) {
         >
           {uploading ? 'Analisi in corso...' : 'Carica e Analizza'}
         </button>
+
+        <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #2a3a4a' }}>
+          <p style={{ color: '#78909c', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+            Oppure incolla il link di condivisione del ticket
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', maxWidth: '500px', margin: '0 auto' }}>
+            <input
+              type="url"
+              placeholder="https://sportium.it/sport/ticket/..."
+              value={ticketUrl}
+              onChange={(e) => setTicketUrl(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleImportUrl()}
+              style={{
+                flex: 1,
+                padding: '0.6rem 0.8rem',
+                border: '1px solid #37474f',
+                borderRadius: '4px',
+                background: '#263238',
+                color: '#e0e0e0',
+                fontSize: '0.9rem',
+              }}
+            />
+            <button
+              className="btn-primary"
+              style={{ maxWidth: '120px', marginTop: 0, padding: '0.6rem 1rem' }}
+              onClick={handleImportUrl}
+              disabled={!ticketUrl.trim() || importingUrl}
+            >
+              {importingUrl ? 'Importo...' : 'Importa'}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="tickets-section">
