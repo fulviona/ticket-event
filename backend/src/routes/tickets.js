@@ -815,10 +815,10 @@ async function fetchWithBrowser(url) {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
+      '--single-process',
+      '--no-zygote',
       '--window-size=1920,1080',
     ],
-    // Usa chromium di sistema se disponibile, altrimenti quello di puppeteer
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
   });
 
   try {

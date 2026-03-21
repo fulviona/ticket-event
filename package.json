@@ -6,6 +6,6 @@
     "install-all": "cd backend && npm install && cd ../frontend && npm install",
     "build": "cd frontend && npm run build",
     "start": "cd backend && node src/server.js",
-    "render-build": "apt-get update && apt-get install -y chromium && cd backend && PUPPETEER_SKIP_DOWNLOAD=true npm install && cd ../frontend && npm install && npm run build"
+    "render-build": "cd backend && npm install && cd ../frontend && npm install && npm run build"
   }
 }
