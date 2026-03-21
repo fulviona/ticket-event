@@ -308,6 +308,99 @@ body {
 .rank-2 { color: #c0c0c0; font-weight: bold; }
 .rank-3 { color: #cd7f32; font-weight: bold; }
 
+/* Bacheca */
+.bacheca-header {
+  background: #1a2530;
+  padding: 1.5rem 2rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.bacheca-header h2 {
+  color: #4fc3f7;
+}
+
+.bacheca-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.bacheca-user-card {
+  background: #1a2530;
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-left: 4px solid transparent;
+}
+
+.bacheca-user-card:hover {
+  background: #1e2d3d;
+  border-left-color: #4fc3f7;
+}
+
+.bacheca-user-card.active {
+  background: #1e2d3d;
+  border-left-color: #4fc3f7;
+}
+
+.bacheca-user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.bacheca-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.bacheca-avatar-placeholder {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #263238;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  color: #4fc3f7;
+  font-weight: bold;
+}
+
+.bacheca-alias {
+  font-weight: bold;
+  color: #e0e0e0;
+  font-size: 1rem;
+  margin-right: 0.5rem;
+}
+
+.bacheca-points {
+  color: #81c784;
+  font-size: 0.85rem;
+}
+
+.bacheca-ticket-count {
+  color: #78909c;
+  font-size: 0.85rem;
+  background: #263238;
+  padding: 0.3rem 0.7rem;
+  border-radius: 12px;
+}
+
+.bacheca-tickets-section {
+  background: #1a2530;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
 /* Admin */
 .admin-page {
   background: #1a2530;

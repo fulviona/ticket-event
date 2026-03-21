@@ -302,6 +302,45 @@ router.get('/shared', auth, async (req, res) => {
   }
 });
 
+// Bacheca: elenco utenti che hanno condiviso almeno un ticket
+router.get('/bacheca/users', auth, async (req, res) => {
+  try {
+    const users = await Ticket.aggregate([
+      { $match: { shared: true } },
+      { $group: { _id: '$user', ticketCount: { $sum: 1 } } },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'userInfo' } },
+      { $unwind: '$userInfo' },
+      {
+        $project: {
+          _id: 0,
+          userId: '$_id',
+          alias: '$userInfo.alias',
+          avatar: '$userInfo.avatar',
+          points: '$userInfo.points',
+          ticketCount: 1,
+        },
+      },
+      { $sort: { ticketCount: -1 } },
+    ]);
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ message: 'Errore del server.' });
+  }
+});
+
+// Bacheca: ticket condivisi di un utente specifico (senza importo, vincita, ID)
+router.get('/bacheca/user/:userId', auth, async (req, res) => {
+  try {
+    const tickets = await Ticket.find({ user: req.params.userId, shared: true })
+      .populate('user', 'alias avatar points')
+      .sort({ createdAt: -1 })
+      .select('-stake -potentialWin -ticketId -ocrRawText');
+    res.json(tickets);
+  } catch (err) {
+    res.status(500).json({ message: 'Errore del server.' });
+  }
+});
+
 // Tutti i ticket (admin)
 router.get('/all', auth, async (req, res) => {
   try {

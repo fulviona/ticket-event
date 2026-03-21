@@ -37,6 +37,8 @@ export const uploadTicket = (formData) =>
 export const getMyTickets = () => api.get('/tickets/my');
 export const getSharedTickets = () => api.get('/tickets/shared');
 export const toggleShareTicket = (id) => api.patch(`/tickets/${id}/share`);
+export const getBachecaUsers = () => api.get('/tickets/bacheca/users');
+export const getBachecaUserTickets = (userId) => api.get(`/tickets/bacheca/user/${userId}`);
 export const getAllTickets = () => api.get('/tickets/all');
 export const updateTicketStatus = (id, status) => api.patch(`/tickets/${id}/status`, { status });
 export const editTicket = (id, data) => api.patch(`/tickets/${id}/edit`, data);

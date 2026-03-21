@@ -9,6 +9,7 @@ import Leaderboard from './pages/Leaderboard';
 import AdminUsers from './pages/AdminUsers';
 import AdminTickets from './pages/AdminTickets';
 import AdminEvents from './pages/AdminEvents';
+import Bacheca from './pages/Bacheca';
 import CookieBanner from './components/CookieBanner';
 import './App.css';
 
@@ -45,6 +46,7 @@ function App() {
             {user ? (
               <>
                 <Link to="/">Home</Link>
+                <Link to="/bacheca">Bacheca</Link>
                 <Link to="/leaderboard">Classifica</Link>
                 {user.role === 'admin' && (
                   <>
@@ -85,6 +87,7 @@ function App() {
             <Route path="/register" element={!user ? <Register setUser={setUser} /> : <Navigate to="/" />} />
             <Route path="/" element={user ? <Home user={user} /> : <Navigate to="/login" />} />
             <Route path="/profile" element={user ? <Profile user={user} setUser={setUser} /> : <Navigate to="/login" />} />
+            <Route path="/bacheca" element={user ? <Bacheca /> : <Navigate to="/login" />} />
             <Route path="/leaderboard" element={user ? <Leaderboard /> : <Navigate to="/login" />} />
             <Route path="/admin/users" element={user?.role === 'admin' ? <AdminUsers /> : <Navigate to="/" />} />
             <Route path="/admin/tickets" element={user?.role === 'admin' ? <AdminTickets /> : <Navigate to="/" />} />
