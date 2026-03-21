@@ -452,6 +452,12 @@ function parseBets(text) {
         flushPendingBet();
       }
       pendingBetLines.push(line);
+    } else if (pendingBetLines.length > 0 && /^\s*(SI|NO|S[IÌ])\s+\d+[.,]\d{1,2}\s*$/i.test(line)) {
+      // Riga con solo selezione+quota (es: "SI 2.05") → appartiene alla scommessa precedente
+      pendingBetLines.push(line);
+    } else if (pendingBetLines.length > 0 && /^\s*\d+[.,]\d{1,2}\s*$/i.test(line)) {
+      // Riga con solo quota (es: "2.05") → appartiene alla scommessa precedente
+      pendingBetLines.push(line);
     } else {
       // Riga non scommessa (summary, metadata, etc.) → flush pending
       flushPendingBet();
@@ -615,6 +621,39 @@ router.patch('/:id/share', auth, async (req, res) => {
     await ticket.save();
     res.json({ message: ticket.shared ? 'Ticket condiviso!' : 'Ticket nascosto.', ticket });
   } catch (err) {
+    res.status(500).json({ message: 'Errore del server.' });
+  }
+});
+
+// Re-parse un ticket dal testo OCR originale (riapplica il parser aggiornato)
+router.patch('/:id/reparse', auth, async (req, res) => {
+  try {
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ message: 'Ticket non trovato.' });
+    if (ticket.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Non autorizzato.' });
+    }
+    if (!ticket.ocrRawText) {
+      return res.status(400).json({ message: 'Testo OCR originale non disponibile.' });
+    }
+    const bets = parseBets(ticket.ocrRawText);
+    ticket.bets = bets.map((b) => ({
+      match: b.match,
+      sport: b.sport || '',
+      competition: b.competition || '',
+      prediction: b.prediction,
+      selection: b.selection || '',
+      betType: b.betType || 'N/D',
+      player: b.player || '',
+      odds: b.odds,
+      eventDate: b.eventDate,
+      score: b.score || '',
+      settlementInfo: b.settlementInfo || '',
+    }));
+    await ticket.save();
+    res.json({ message: 'Ticket ri-analizzato con successo!', ticket });
+  } catch (err) {
+    console.error('Errore reparse:', err);
     res.status(500).json({ message: 'Errore del server.' });
   }
 });

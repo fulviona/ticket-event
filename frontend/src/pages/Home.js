@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket } from '../services/api';
+import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket, reparseTicket } from '../services/api';
 
 function Home({ user }) {
   const [tickets, setTickets] = useState([]);
@@ -66,6 +66,16 @@ function Home({ user }) {
     }
   };
 
+  const handleReparse = async (id) => {
+    try {
+      await reparseTicket(id);
+      setMessage('Ticket ri-analizzato con successo!');
+      loadTickets();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Errore durante la ri-analisi.');
+    }
+  };
+
   const handleShare = async (id) => {
     try {
       await toggleShareTicket(id);
@@ -124,18 +134,28 @@ function Home({ user }) {
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             {!showUser && (
-              <button
-                className="btn-small"
-                style={{
-                  background: ticket.shared ? '#2e7d32' : '#37474f',
-                  color: 'white',
-                  fontSize: '0.75rem',
-                }}
-                onClick={() => handleShare(ticket._id)}
-                title={ticket.shared ? 'Clicca per nascondere' : 'Clicca per condividere'}
-              >
-                {ticket.shared ? 'Condiviso' : 'Condividi'}
-              </button>
+              <>
+                <button
+                  className="btn-small"
+                  style={{ background: '#37474f', color: '#90a4ae', fontSize: '0.7rem' }}
+                  onClick={() => handleReparse(ticket._id)}
+                  title="Ri-analizza il ticket con il parser aggiornato"
+                >
+                  Ri-analizza
+                </button>
+                <button
+                  className="btn-small"
+                  style={{
+                    background: ticket.shared ? '#2e7d32' : '#37474f',
+                    color: 'white',
+                    fontSize: '0.75rem',
+                  }}
+                  onClick={() => handleShare(ticket._id)}
+                  title={ticket.shared ? 'Clicca per nascondere' : 'Clicca per condividere'}
+                >
+                  {ticket.shared ? 'Condiviso' : 'Condividi'}
+                </button>
+              </>
             )}
             <span className={`ticket-status ${ticket.status}`}>
               {ticket.status === 'won' ? 'Vinto' : ticket.status === 'lost' ? 'Perso' : 'In attesa'}

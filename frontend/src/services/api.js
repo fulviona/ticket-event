@@ -43,6 +43,7 @@ export const getAllTickets = () => api.get('/tickets/all');
 export const updateTicketStatus = (id, status) => api.patch(`/tickets/${id}/status`, { status });
 export const editTicket = (id, data) => api.patch(`/tickets/${id}/edit`, data);
 export const deleteTicket = (id) => api.delete(`/tickets/${id}`);
+export const reparseTicket = (id) => api.patch(`/tickets/${id}/reparse`);
 
 // Events
 export const getEvents = () => api.get('/events');
