@@ -74,12 +74,37 @@ function Home({ user }) {
     setError('');
     setMessage('');
     try {
+      // Prima prova dal server
       await importTicketUrl(ticketUrl.trim());
       setMessage('Ticket importato dal link con successo!');
       setTicketUrl('');
       loadTickets();
     } catch (err) {
-      setError(err.response?.data?.message || 'Errore durante l\'importazione dal link.');
+      // Se il server riceve "Access Denied", prova fetch dal browser dell'utente
+      if (err.response?.status === 403 && err.response?.data?.needsClientFetch) {
+        setMessage('Il sito ha bloccato il server, riprovo dal tuo browser...');
+        try {
+          // Fetch tramite proxy CORS dal browser dell'utente
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(ticketUrl.trim())}`;
+          const response = await fetch(proxyUrl);
+          const html = await response.text();
+          if (html && html.length > 100 && !html.includes('Access Denied')) {
+            await importTicketUrl(ticketUrl.trim(), html);
+            setMessage('Ticket importato dal link con successo!');
+            setTicketUrl('');
+            setError('');
+            loadTickets();
+          } else {
+            setError('Impossibile accedere al ticket. Prova a aprire il link nel browser, copiare tutto il testo della pagina e incollarlo qui sotto.');
+            setMessage('');
+          }
+        } catch (clientErr) {
+          setError('Impossibile accedere al ticket. Prova a aprire il link nel browser, copiare tutto il testo della pagina e incollarlo qui sotto.');
+          setMessage('');
+        }
+      } else {
+        setError(err.response?.data?.message || 'Errore durante l\'importazione dal link.');
+      }
     } finally {
       setImportingUrl(false);
     }

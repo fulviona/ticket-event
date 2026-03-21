@@ -879,7 +879,7 @@ async function fetchWithBrowser(url) {
 // Import ticket da URL (link condivisione Sportium o altri)
 router.post('/import-url', auth, async (req, res) => {
   try {
-    const { url } = req.body;
+    const { url, clientHtml } = req.body;
     if (!url) {
       return res.status(400).json({ message: 'Inserisci un link valido.' });
     }
@@ -903,19 +903,36 @@ router.post('/import-url', auth, async (req, res) => {
       }
     }
 
-    console.log(`[Import URL] Apertura con browser headless: ${url}`);
-
-    // Usa Puppeteer per caricare la pagina come un browser reale
     let html, text;
-    try {
-      const result = await fetchWithBrowser(url);
-      html = result.html;
-      text = result.text;
-    } catch (browserErr) {
-      console.error('Errore Puppeteer:', browserErr.message);
-      return res.status(500).json({
-        message: `Errore nell'apertura del link: ${browserErr.message}. Verifica che il link sia corretto e riprova.`,
-      });
+
+    // Se il client ha già fornito l'HTML (fetch lato client), usalo direttamente
+    if (clientHtml && clientHtml.length > 100) {
+      console.log(`[Import URL] Usando HTML fornito dal client (${clientHtml.length} caratteri)`);
+      html = clientHtml;
+      // Estrai testo dal HTML
+      text = clientHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    } else {
+      // Prova fetch lato server con Puppeteer
+      console.log(`[Import URL] Apertura con browser headless: ${url}`);
+      try {
+        const result = await fetchWithBrowser(url);
+        html = result.html;
+        text = result.text;
+      } catch (browserErr) {
+        console.error('Errore Puppeteer:', browserErr.message);
+        return res.status(500).json({
+          message: `Errore nell'apertura del link: ${browserErr.message}. Verifica che il link sia corretto e riprova.`,
+        });
+      }
+
+      // Se il contenuto è "Access Denied", chiedi al client di provare
+      if (text && text.includes('Access Denied')) {
+        console.log('[Import URL] Accesso negato dal server, richiedo fetch lato client');
+        return res.status(403).json({
+          message: 'Il sito ha bloccato la richiesta dal server. Riprovo dal tuo browser...',
+          needsClientFetch: true,
+        });
+      }
     }
 
     if (!html || (!text || text.trim().length < 50)) {
