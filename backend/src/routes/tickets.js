@@ -466,7 +466,7 @@ function isBetDescriptionLine(line) {
   // Non è una riga di match
   if (parseMatchLine(line)) return false;
   // Non è una riga di riepilogo o metadati ticket
-  if (/^(quota|importo|vincita|puntata|giocata\s*del|aams|adm|codice|data[:\s]|ora[:\s]|bonus|ib[-]|cc[-]|nc[-]|pv[-]|pal[:\s]|avv[:\s]|singola|multipla|sistema|totale\s*importo|importo\s*scommesso|concession|punto\s*vendita|ricevuta|stato[:\s]|quota\s*totale)/i.test(line.trim())) return false;
+  if (/^(quota|importo|vincita|puntata|giocata\s*del|giocata\s*$|aams|adm|codice|data[:\s]|ora[:\s]|bonus|ib[-]|cc[-]|nc[-]|pv[-]|pal[:\s]|avv[:\s]|singola|multipla|sistema|totale\s*importo|importo\s*scommesso|concession|punto\s*vendita|ricevuta|stato[:\s]|quota\s*totale|stampa|condividi|cashout|venduto|vincita\s*potenziale|importo\s*bonus)/i.test(line.trim())) return false;
   // Non è un barcode o codice operatore
   if (/^[A-Z]{2,3}[-]\d/i.test(line.trim())) return false;
   // Non è troppo corta (probabilmente rumore OCR)
@@ -489,8 +489,42 @@ function startsNewBet(line) {
   return false;
 }
 
+// ===== Pre-elaborazione testo incollato =====
+// Unisce righe separate Team1/vs/Team2 e pulisce rumore Sportium
+function preprocessPastedText(text) {
+  let lines = text.split('\n');
+
+  // Fase 1: Unisci "Team1 \n vs \n Team2" in una sola riga
+  const merged = [];
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    // Se la riga è "vs" o "vs." da sola, unisci con la riga precedente e successiva
+    if (/^\s*vs\.?\s*$/i.test(trimmed) && merged.length > 0 && i + 1 < lines.length) {
+      const team1 = merged.pop();
+      const team2 = lines[i + 1].trim();
+      merged.push(team1 + ' vs ' + team2);
+      i++; // Salta la riga team2
+    } else {
+      merged.push(trimmed);
+    }
+  }
+
+  // Fase 2: Filtra righe di rumore (metadata, UI elements)
+  const NOISE_RE = /^\s*(stato\s*:\s*\w+|giocata\s*$|venduto|stampa|condividi\s*cashout|condividicashout|stampa\s*condividi\s*cashout|stampacondividicashout|condividi|cashout|importo\s*bonus|vincita\s*potenziale|giocata\s*del\s*:)/i;
+  const filtered = merged.filter((l) => {
+    if (!l.trim()) return false;
+    if (NOISE_RE.test(l.trim())) return false;
+    return true;
+  });
+
+  return filtered.join('\n');
+}
+
 // ===== Parser principale scommesse =====
 function parseBets(text) {
+  // Pre-elabora il testo: unisci Team/vs/Team, rimuovi rumore
+  text = preprocessPastedText(text);
+
   const lines = text.split('\n').filter((l) => l.trim());
   const bets = [];
 
@@ -498,9 +532,16 @@ function parseBets(text) {
   let currentHeader = null; // { eventDate, sport, competition }
   let currentMatch = null;  // { match, score }
 
-  // Fase 1: Identifica le righe e raggruppa le scommesse
   // Accumula righe di scommessa fino a trovare un nuovo inizio
   let pendingBetLines = [];
+
+  // Pattern riutilizzati
+  const SELECTION_RE = /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*(?:OVER|UNDER))?|\d\/[1X2](?:\s*\+\s*(?:OVER|UNDER))?)\s*$/i;
+  const SELECTION_ODDS_RE = /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*(?:OVER|UNDER))?|\d\/[1X2](?:\s*\+\s*(?:OVER|UNDER))?)\s*[|]?\s*(\d+[.,]\d{1,2})\s*$/i;
+  const ODDS_ONLY_RE = /^\s*(\d+[.,]\d{1,2})\s*$/;
+  const BET_LABEL_RE = /^\s*(cartellino|marcatore|risultato|ammonizione|espulsione|autogol|autorete|rigore|corner|tiri|assist|fallo|fuorigioco|parata|gol)\s*$/i;
+  // Tipo scommessa Sportium: "ESITO FINALE 1X2", "GOAL/NO GOAL", "UNDER/OVER 2,5", etc.
+  const BET_TYPE_LINE_RE = /^\s*(ESITO\s+FINALE\s+1X2|GOAL\s*\/\s*NO\s*GOAL|UNDER\s*\/\s*OVER\s*[\d.,]*|DOPPIA\s+CHANCE|PARZIALE\s*\/?\s*FINALE|HANDICAP|MULTIGOL|COMBO\s+\w+|SOMMA\s+GOAL|MARCATORE|RIGORE|ESPULSIONE|CARTELLINI|AUTORETE|CORNER|ANGOLI|RISULTATO\s+ESATTO|PRIMO\s+TEMPO|SECONDO\s+TEMPO|SEGNA\s*GOL|VINCE\s*A\s*ZERO|DC\s*\/?\s*GNG|COMBO\s+SCOMMESSA|GOAL\/NO\s*GOAL)\s*$/i;
 
   const flushPendingBet = () => {
     if (pendingBetLines.length === 0) return;
@@ -534,7 +575,7 @@ function parseBets(text) {
       continue;
     }
 
-    // 2. Controlla se è una riga di match
+    // 2. Controlla se è una riga di match (es: "Parma vs Cremonese")
     const matchInfo = parseMatchLine(line);
     if (matchInfo) {
       flushPendingBet();
@@ -542,54 +583,59 @@ function parseBets(text) {
       continue;
     }
 
-    // Pattern selezioni valide (riutilizzato)
-    const SELECTION_RE = /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*(?:OVER|UNDER))?|\d\/[1X2](?:\s*\+\s*(?:OVER|UNDER))?)\s*$/i;
-    const SELECTION_ODDS_RE = /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*(?:OVER|UNDER))?|\d\/[1X2](?:\s*\+\s*(?:OVER|UNDER))?)\s*[|]?\s*(\d+[.,]\d{1,2})\s*$/i;
-    const ODDS_ONLY_RE = /^\s*(\d+[.,]\d{1,2})\s*$/;
-    const BET_LABEL_RE = /^\s*(cartellino|marcatore|risultato|ammonizione|espulsione|autogol|autorete|rigore|corner|tiri|assist|fallo|fuorigioco|parata|gol)\s*$/i;
+    // 3. Ordine di priorità per classificare la riga:
 
-    // 3. Ordine di priorità per righe quando c'è una scommessa pendente:
-    //    a) Etichette Sportium (Cartellino, Marcatore) → ignora
-    //    b) Selezione + Quota (es: "SI 2.05", "SI | 4.32") → aggiungi al pending
-    //    c) Solo selezione (es: "SI") → aggiungi al pending
-    //    d) Solo quota (es: "2.05") → aggiungi al pending
-    //    e) Nuova scommessa → flush + push
-    //    f) Continuazione descrizione → push
-    //    g) Altro → flush
-
-    if (pendingBetLines.length > 0 && BET_LABEL_RE.test(line)) {
-      // Etichette tipo scommessa Sportium → ignora senza flush
+    // a) Etichette singole tipo scommessa (Cartellino, Marcatore) → ignora
+    if (BET_LABEL_RE.test(line)) {
       continue;
-    } else if (pendingBetLines.length > 0 && SELECTION_ODDS_RE.test(line)) {
-      // Riga con selezione+quota (es: "SI 2.05", "SI | 4.32") → normalizza e aggiungi
+    }
+
+    // b) Tipo scommessa Sportium su riga separata (ESITO FINALE 1X2, GOAL/NO GOAL)
+    //    → è la descrizione della scommessa, inizia un nuovo bet
+    if (BET_TYPE_LINE_RE.test(line)) {
+      flushPendingBet();
+      pendingBetLines.push(line);
+      continue;
+    }
+
+    // c) Selezione + Quota (es: "SI 2.05", "GOAL 2.12") → aggiungi al pending
+    if (pendingBetLines.length > 0 && SELECTION_ODDS_RE.test(line)) {
       pendingBetLines.push(line.replace(/[|]/g, ' '));
-    } else if (pendingBetLines.length > 0 && SELECTION_RE.test(line)) {
-      // Riga con solo selezione (es: "SI", "OVER") → aggiungi
+      continue;
+    }
+
+    // d) Solo selezione (es: "1", "GOAL", "SI") → aggiungi al pending
+    if (pendingBetLines.length > 0 && SELECTION_RE.test(line)) {
       pendingBetLines.push(line);
-    } else if (pendingBetLines.length > 0 && ODDS_ONLY_RE.test(line)) {
-      // Riga con solo quota (es: "2.05") → aggiungi
+      continue;
+    }
+
+    // e) Solo quota (es: "2.18") → aggiungi al pending
+    if (pendingBetLines.length > 0 && ODDS_ONLY_RE.test(line)) {
       pendingBetLines.push(line);
-    } else if (isBetDescriptionLine(line)) {
-      // Se questa riga inizia una nuova scommessa, flush la precedente
+      continue;
+    }
+
+    // f) Riga di descrizione scommessa
+    if (isBetDescriptionLine(line)) {
       if (startsNewBet(line)) {
         flushPendingBet();
       }
       pendingBetLines.push(line);
-    } else {
-      // Riga non scommessa (summary, metadata, etc.) → flush pending
-      flushPendingBet();
+      continue;
     }
+
+    // g) Altro → flush pending
+    flushPendingBet();
   }
   // Flush l'ultima scommessa pendente
   flushPendingBet();
 
   // Fallback: se non trova nessuna scommessa strutturata
   if (bets.length === 0) {
-    // Prova a trovare almeno il match con "vs"
     const vsMatch = text.match(/([A-Za-zÀ-ú][A-Za-zÀ-ú\s.']+?)\s+vs\.?\s+([A-Za-zÀ-ú][A-Za-zÀ-ú\s.']+)/i);
     const matchName = vsMatch ? `${vsMatch[1].trim()} vs ${vsMatch[2].trim()}` : 'Scommessa caricata';
 
-    // Cerca eventuali descrizioni significative
     const meaningfulLines = lines.filter((l) => {
       const t = l.trim();
       return t.length > 10 &&
