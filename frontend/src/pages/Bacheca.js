@@ -120,41 +120,65 @@ function Bacheca() {
 
                 {groups.map((group, gi) => (
                   <div key={gi} className="match-group">
-                    {(group.sport || group.competition) && (
-                      <div style={{ fontSize: '0.75rem', color: '#546e7a', marginBottom: '0.2rem' }}>
-                        {group.eventDate && new Date(group.eventDate).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                        {group.sport && <span> - {group.sport}</span>}
-                        {group.competition && <span> - {group.competition}</span>}
-                      </div>
-                    )}
-                    <div style={{ fontWeight: 'bold', marginBottom: '0.3rem', fontSize: '0.95rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#546e7a', marginBottom: '0.3rem' }}>
+                      {group.eventDate && new Date(group.eventDate).toLocaleDateString('it-IT', {
+                        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                      })}
+                      {group.sport && <span> - {group.sport}</span>}
+                      {group.competition && <span> - {group.competition}</span>}
+                    </div>
+                    <div style={{ fontWeight: 'bold', marginBottom: '0.5rem', fontSize: '1rem' }}>
                       {group.match}
                       {group.score && (
-                        <span style={{ marginLeft: '0.5rem', color: '#ffb74d', fontWeight: 'normal', fontSize: '0.85rem' }}>({group.score})</span>
+                        <span style={{ marginLeft: '0.5rem', color: '#ffb74d', fontWeight: 'normal', fontSize: '0.9rem' }}>({group.score})</span>
                       )}
                     </div>
-                    {group.bets.map((bet, bi) => (
-                      <div key={bi} className="bet-item">
-                        <span style={{ color: '#e0e0e0' }}>{bet.prediction}</span>
-                        {bet.selection && (
-                          <span style={{
-                            marginLeft: '0.5rem', background: bet.selection === 'SI' ? '#1b5e20' : '#b71c1c',
-                            padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.75rem', color: 'white', fontWeight: 'bold',
-                          }}>{bet.selection}</span>
-                        )}
-                        {bet.betType && bet.betType !== 'N/D' && (
-                          <span style={{
-                            marginLeft: '0.5rem', background: '#1a3a4a', padding: '0.1rem 0.4rem',
-                            borderRadius: '4px', fontSize: '0.75rem', color: '#80cbc4',
-                          }}>{bet.betType}</span>
-                        )}
-                        {bet.odds && (
-                          <span style={{ marginLeft: '0.5rem', color: '#ffb74d', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                            {bet.odds.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                    <table className="bet-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '55%' }}>Tipo Scommessa</th>
+                          <th style={{ width: '25%', textAlign: 'center' }}>Scelta</th>
+                          <th style={{ width: '20%', textAlign: 'right' }}>Quota</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.bets.map((bet, bi) => (
+                          <tr key={bi} className="bet-row">
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                                {bet.player && (
+                                  <span style={{ color: '#4fc3f7', fontWeight: 'bold', fontSize: '0.85rem' }}>{bet.player}</span>
+                                )}
+                                <span style={{ color: '#e0e0e0', fontSize: '0.82rem' }}>{bet.prediction}</span>
+                                {bet.betType && bet.betType !== 'N/D' && (
+                                  <span style={{
+                                    display: 'inline-block', width: 'fit-content',
+                                    background: '#1a3a4a', padding: '0.1rem 0.4rem',
+                                    borderRadius: '4px', fontSize: '0.7rem', color: '#80cbc4',
+                                  }}>{bet.betType}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                              {bet.selection && (
+                                <span style={{
+                                  background: bet.selection === 'SI' ? '#1b5e20' : bet.selection === 'NO' ? '#b71c1c' : '#37474f',
+                                  padding: '0.2rem 0.6rem', borderRadius: '4px',
+                                  fontSize: '0.8rem', color: 'white', fontWeight: 'bold',
+                                }}>{bet.selection}</span>
+                              )}
+                            </td>
+                            <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
+                              {bet.odds && (
+                                <span style={{ color: '#ffb74d', fontSize: '0.95rem', fontWeight: 'bold' }}>
+                                  {bet.odds.toFixed(2)}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 ))}
 

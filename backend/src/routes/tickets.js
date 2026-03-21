@@ -110,6 +110,47 @@ function detectBetType(text) {
   return 'N/D';
 }
 
+// ===== Regole di refertazione per tipo scommessa =====
+const SETTLEMENT_RULES = {
+  'Cartellino': 'Cartellino giallo=1pt, rosso diretto=2pt, doppio giallo=3pt. Max 3pt per giocatore. Vale anche da panchina e dopo fischio finale se specificato "ANCHE IN PANCHINA E DOPO".',
+  'Marcatore': 'Il giocatore deve segnare almeno un gol. Autogol NON conta. Se il giocatore non entra in campo, scommessa rimborsata. Per Marcatore DUO: vale anche il gol del sostituto.',
+  'Palo/Traversa': 'Il giocatore deve colpire palo o traversa (senza segnare direttamente da quel tiro). Se specificato "O IL SUO SOSTITUTO", vale anche per il sostituto.',
+  'Assist': 'Il giocatore deve fornire l\'ultimo passaggio prima del gol. Se specificato "O IL SUO SOSTITUTO", vale anche per il sostituto.',
+  'Under/Over': 'Conta il numero totale di gol al 90\'+recupero. Supplementari e rigori NON contano.',
+  'Goal/No Goal': 'GOAL: entrambe le squadre devono segnare almeno 1 gol. NO GOAL: almeno una squadra non segna.',
+  '1X2': '1=vittoria casa, X=pareggio, 2=vittoria ospite. Conta il risultato al 90\'+recupero.',
+  'Doppia Chance': '1X=casa o pareggio, 12=casa o ospite, X2=pareggio o ospite. Risultato al 90\'+recupero.',
+  'Handicap': 'Handicap Europeo: 3 esiti (1, X, 2) applicando l\'handicap. Handicap Asiatico: 2 esiti, possibile rimborso parziale.',
+  'Risultato Esatto': 'Pronostico esatto del punteggio finale al 90\'+recupero.',
+  'Parziale/Finale': 'Combinazione risultato primo tempo e risultato finale (es: 1/X = casa vince 1T, pareggio finale).',
+  'Combo 1X2+U/O': 'Combinazione risultato 1X2 + Under/Over. Entrambe le condizioni devono verificarsi.',
+  'Combo 1X2+GG/NG': 'Combinazione risultato 1X2 + Goal/No Goal. Entrambe le condizioni devono verificarsi.',
+  'Corner': 'Conta il numero di calci d\'angolo battuti. Conteggio ufficiale della lega.',
+  'Pari/Dispari': 'PARI: totale gol pari (0, 2, 4...). DISPARI: totale gol dispari (1, 3, 5...). 0-0 = PARI.',
+  'Somma Goal': 'Fascia esatta del totale gol segnati nella partita.',
+  'Multigol': 'Il totale gol deve rientrare nell\'intervallo specificato (es: 1-3 gol).',
+  'Tiri': 'Conteggio tiri in porta/totali del giocatore. Statistiche ufficiali Opta/provider dati.',
+  'Rigore': 'Deve essere assegnato almeno un calcio di rigore durante i 90\'+recupero.',
+  'Ribaltone': 'Una squadra deve andare in svantaggio e poi vincere la partita.',
+  'Autorete': 'Deve essere segnato almeno un autogol durante la partita.',
+};
+
+function getSettlementInfo(betType, prediction) {
+  // Controlla se c'è "ANCHE IN PANCHINA E DOPO" per cartellini speciali
+  if (betType === 'Cartellino' && /anche\s*in\s*panchina/i.test(prediction)) {
+    return 'Cartellino PLUS: vale anche se ricevuto dalla panchina o dopo il fischio finale. Se il giocatore non è convocato, scommessa rimborsata. Se c\'è "O SUO SOSTITUTO", vale anche il cartellino del sostituto.';
+  }
+  // Marcatore Plus (segna o colpisce palo/traversa)
+  if (/segna\s+o\s+colpisce\s+palo/i.test(prediction)) {
+    return 'Marcatore PLUS: il giocatore deve segnare OPPURE colpire palo/traversa. Se specificato "O IL SUO SOSTITUTO", vale anche per il sostituto. Se non entra in campo, rimborsata.';
+  }
+  // Segna o fa assist
+  if (/segna\s+o\s+fa\s+assist/i.test(prediction)) {
+    return 'Il giocatore deve segnare OPPURE fornire un assist. Se specificato "O IL SUO SOSTITUTO", vale anche per il sostituto. Se non entra in campo, rimborsata.';
+  }
+  return SETTLEMENT_RULES[betType] || '';
+}
+
 // ===== Estrazione codice AAMS/ADM =====
 function extractTicketId(text) {
   const patterns = [
@@ -160,6 +201,12 @@ function extractPlayedAt(text) {
     const [, day, month, year, hour, min] = m;
     return new Date(year, month - 1, day, hour, min);
   }
+  // "DATA: 21/03/2026  ORA: 14:35" (formato ADM)
+  const m2 = text.match(/data[:\s]*(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\s*ora[:\s]*(\d{1,2})[:.]\s*(\d{2})/i);
+  if (m2) {
+    const [, day, month, year, hour, min] = m2;
+    return new Date(year, month - 1, day, hour, min);
+  }
   return null;
 }
 
@@ -194,49 +241,75 @@ function parseEventHeader(line) {
 // Riga di match: "Roma vs Bologna (3:3)" o "Aston Villa vs Lilla (2:0)"
 function parseMatchLine(line) {
   // Pattern: Team1 vs Team2 con opzionale punteggio
-  const m = line.match(/^([A-Za-zÀ-ú0-9\s.'_-]{2,}?)\s+vs\.?\s+([A-Za-zÀ-ú0-9\s.'_-]{2,?})(?:\s*\((\d+[:.]\d+)\))?/i);
-  if (m) {
+  // Usa .+? per catturare nomi squadre con qualsiasi carattere
+  const m = line.match(/^(.+?)\s+vs\.?\s+(.+?)(?:\s*\((\d+[:.]\d+)\))?\s*$/i);
+  if (m && m[1].trim().length >= 2 && m[2].trim().length >= 2) {
     return {
       match: `${m[1].trim()} vs ${m[2].trim()}`,
       score: m[3] ? m[3].replace('.', ':') : '',
     };
   }
-  // Pattern con "-" o "–" come separatore (ma NON per date/header)
-  // Evita match con numeri puri all'inizio (date)
-  const m2 = line.match(/^([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']{1,}?)\s+[-–]\s+([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']{1,?})(?:\s*\((\d+[:.]\d+)\))?$/i);
-  if (m2 && !line.match(/^\d{1,2}[/.-]\d{1,2}/)) {
-    return {
-      match: `${m2[1].trim()} vs ${m2[2].trim()}`,
-      score: m2[3] ? m2[3].replace('.', ':') : '',
-    };
+  // Pattern ADM: "ROMA - LAZIO" con separatore "-" o "–"
+  // NON per date (inizia con numero) e NON per righe giocatore (contiene parentesi con squadra)
+  if (!line.match(/^\d{1,2}[/.-]\d{1,2}/) && !line.match(/\([A-Za-zÀ-ú\s.]+\)\s*[:/O]/i)) {
+    const m2 = line.match(/^([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']+?)\s+[-–]\s+([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']+?)(?:\s*\((\d+[:.]\d+)\))?\s*$/i);
+    if (m2 && m2[1].trim().length >= 2 && m2[2].trim().length >= 2) {
+      return {
+        match: `${m2[1].trim()} vs ${m2[2].trim()}`,
+        score: m2[3] ? m2[3].replace('.', ':') : '',
+      };
+    }
   }
   return null;
 }
 
 // Riga di scommessa: "CELIK, ZEKI (ROMA) O SUO SOSTITUTO CARTELLINO... SI 4.32"
+// Può contenere odds a metà riga (es: "SI |4.32 FISCHIO FINALE")
 function parseBetLine(line) {
-  // Cerca quota alla fine della riga: numero decimale (es: 4.32, 2,05)
-  const oddsMatch = line.match(/\b(\d+[.,]\d{1,2})\s*$/);
-  const odds = oddsMatch ? parseFloat(oddsMatch[1].replace(',', '.')) : undefined;
+  // Normalizza separatori: "|" → spazio, "@" → spazio, "©" → spazio (OCR artifacts)
+  let normalized = line.replace(/[|@©®]/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // Cerca selezione SI/NO prima della quota
-  const selectionMatch = line.match(/\b(SI|NO|S[IÌ]|1|X|2)\s+\d+[.,]\d/i);
-  const selection = selectionMatch ? selectionMatch[1].toUpperCase().replace('SÌ', 'SI') : '';
+  // Cerca quota: numero decimale preceduto da selezione o separatore
+  // Pattern: "SI 4.32" o "NO 2.05" o "SI|4.32" o standalone "4.32" alla fine o a metà riga
+  let odds;
+  let selection = '';
 
-  // Rimuovi la quota e la selezione per ottenere la descrizione
-  let description = line;
-  if (oddsMatch) {
-    description = description.substring(0, description.lastIndexOf(oddsMatch[1])).trim();
-  }
-  if (selection) {
-    // Rimuovi solo l'ultima occorrenza di SI/NO prima della quota
-    const selIdx = description.lastIndexOf(selection);
-    if (selIdx > 0 && selIdx > description.length - selection.length - 5) {
-      description = description.substring(0, selIdx).trim();
+  // Pattern 1: "SI/NO <quota>" ovunque nella riga
+  const selOddsMatch = normalized.match(/\b(SI|NO|S[IÌ])\s+(\d+[.,]\d{1,2})\b/i);
+  if (selOddsMatch) {
+    selection = selOddsMatch[1].toUpperCase().replace('SÌ', 'SI');
+    odds = parseFloat(selOddsMatch[2].replace(',', '.'));
+  } else {
+    // Pattern 2: quota alla fine della riga
+    const oddsEnd = normalized.match(/\b(\d+[.,]\d{1,2})\s*$/);
+    if (oddsEnd) {
+      odds = parseFloat(oddsEnd[1].replace(',', '.'));
+    }
+    // Pattern 3: "1/X/2 <quota>" per scommesse 1X2
+    const sel1x2Match = normalized.match(/\b(1|X|2)\s+(\d+[.,]\d{1,2})\b/i);
+    if (sel1x2Match && !odds) {
+      selection = sel1x2Match[1].toUpperCase();
+      odds = parseFloat(sel1x2Match[2].replace(',', '.'));
     }
   }
-  // Rimuovi il separatore "|" residuo
-  description = description.replace(/\|\s*$/, '').trim();
+
+  // Rimuovi odds e selezione dalla descrizione
+  let description = normalized;
+  if (selOddsMatch) {
+    // Rimuovi "SI 4.32" e tutto ciò che segue (es. "FISCHIO FINALE" = rumore)
+    const idx = description.indexOf(selOddsMatch[0]);
+    if (idx > 0) {
+      description = description.substring(0, idx).trim();
+    }
+  } else if (odds) {
+    // Rimuovi la quota alla fine
+    description = description.replace(/\s*\d+[.,]\d{1,2}\s*$/, '').trim();
+  }
+
+  // Pulizia residui
+  description = description.replace(/\|\s*$/, '').replace(/\s+/g, ' ').trim();
+  // Rimuovi eventuale "FISCHIO FINALE" alla fine che rimane (rumore post-quota)
+  description = description.replace(/\s*FISCHIO\s*FINALE\s*$/i, '').trim();
 
   // Estrai nome giocatore: "COGNOME, NOME (SQUADRA)" o "COGNOME NOME (SQUADRA):"
   let player = '';
@@ -268,7 +341,7 @@ function isBetDescriptionLine(line) {
   // Non è una riga di match
   if (parseMatchLine(line)) return false;
   // Non è una riga di riepilogo o metadati ticket
-  if (/^(quota|importo|vincita|giocata\s*del|aams|adm|codice|data[:\s]|ora[:\s]|bonus|ib[-]|cc[-]|nc[-]|pv[-]|pal[:\s]|avv[:\s]|singola|multipla|sistema|totale\s*importo|importo\s*scommesso)/i.test(line.trim())) return false;
+  if (/^(quota|importo|vincita|puntata|giocata\s*del|aams|adm|codice|data[:\s]|ora[:\s]|bonus|ib[-]|cc[-]|nc[-]|pv[-]|pal[:\s]|avv[:\s]|singola|multipla|sistema|totale\s*importo|importo\s*scommesso|concession|punto\s*vendita|ricevuta)/i.test(line.trim())) return false;
   // Non è un barcode o codice operatore
   if (/^[A-Z]{2,3}[-]\d/i.test(line.trim())) return false;
   // Non è troppo corta (probabilmente rumore OCR)
@@ -276,6 +349,19 @@ function isBetDescriptionLine(line) {
   // Deve contenere lettere (non solo numeri/simboli)
   if (!/[A-Za-zÀ-ú]{2,}/.test(line)) return false;
   return true;
+}
+
+// ===== Rilevamento inizio nuova scommessa =====
+// Una nuova scommessa inizia quando la riga contiene un pattern "COGNOME, NOME (SQUADRA)"
+// che indica l'inizio di una giocata su un giocatore
+function startsNewBet(line) {
+  // Pattern giocatore: "COGNOME, NOME (SQUADRA)" all'inizio della riga
+  if (/^[A-ZÀ-Ú][A-ZÀ-Ú\s,.']+\s*\([A-Za-zÀ-ú\s.]+\)/i.test(line)) return true;
+  // Pattern con ":" dopo la parentesi: "MALEN, DONYELL (ROMA): SEGNA O..."
+  if (/^[A-ZÀ-Ú][A-ZÀ-Ú\s,.']+\s*\([A-Za-zÀ-ú\s.]+\)\s*:/i.test(line)) return true;
+  // Pattern scommessa non-giocatore (1X2, Under/Over, etc.) che inizia con keyword chiave
+  if (/^(1X2|UNDER|OVER|GOAL|NO\s*GOAL|DOPPIA\s*CHANCE|HANDICAP|RIS\.?\s*ES|PARI|DISPARI)/i.test(line)) return true;
+  return false;
 }
 
 // ===== Parser principale scommesse =====
@@ -287,12 +373,38 @@ function parseBets(text) {
   let currentHeader = null; // { eventDate, sport, competition }
   let currentMatch = null;  // { match, score }
 
+  // Fase 1: Identifica le righe e raggruppa le scommesse
+  // Accumula righe di scommessa fino a trovare un nuovo inizio
+  let pendingBetLines = [];
+
+  const flushPendingBet = () => {
+    if (pendingBetLines.length === 0) return;
+    const fullLine = pendingBetLines.join(' ');
+    const finalBet = parseBetLine(fullLine);
+
+    bets.push({
+      match: currentMatch ? currentMatch.match : 'Scommessa',
+      sport: currentHeader ? currentHeader.sport : '',
+      competition: currentHeader ? currentHeader.competition : '',
+      prediction: finalBet.prediction,
+      selection: finalBet.selection,
+      betType: finalBet.betType,
+      player: finalBet.player,
+      odds: finalBet.odds,
+      eventDate: currentHeader ? currentHeader.eventDate : new Date(),
+      score: currentMatch ? currentMatch.score : '',
+      settlementInfo: getSettlementInfo(finalBet.betType, finalBet.prediction),
+    });
+    pendingBetLines = [];
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
     // 1. Controlla se è una riga di intestazione evento
     const header = parseEventHeader(line);
     if (header) {
+      flushPendingBet();
       currentHeader = header;
       continue;
     }
@@ -300,47 +412,25 @@ function parseBets(text) {
     // 2. Controlla se è una riga di match
     const matchInfo = parseMatchLine(line);
     if (matchInfo) {
+      flushPendingBet();
       currentMatch = matchInfo;
       continue;
     }
 
     // 3. Controlla se è una riga di scommessa
     if (isBetDescriptionLine(line)) {
-      const bet = parseBetLine(line);
-
-      // Se non abbiamo ancora trovato un match, potrebbe essere una scommessa standalone
-      // Prova a cercare multi-riga: a volte la descrizione scommessa si estende su più righe
-      // Uniamo le righe consecutive che non sono header/match/summary
-      let fullLine = line;
-      while (i + 1 < lines.length) {
-        const nextLine = lines[i + 1].trim();
-        // Se la riga successiva è una continuazione (nessuna quota alla fine della riga corrente,
-        // e la riga successiva non inizia con un pattern riconoscibile)
-        if (!bet.odds && isBetDescriptionLine(nextLine) && !parseEventHeader(nextLine) && !parseMatchLine(nextLine)) {
-          fullLine += ' ' + nextLine;
-          i++;
-        } else {
-          break;
-        }
+      // Se questa riga inizia una nuova scommessa, flush la precedente
+      if (startsNewBet(line)) {
+        flushPendingBet();
       }
-
-      // Se abbiamo unito righe, ri-parsa
-      const finalBet = fullLine !== line ? parseBetLine(fullLine) : bet;
-
-      bets.push({
-        match: currentMatch ? currentMatch.match : 'Scommessa',
-        sport: currentHeader ? currentHeader.sport : '',
-        competition: currentHeader ? currentHeader.competition : '',
-        prediction: finalBet.prediction,
-        selection: finalBet.selection,
-        betType: finalBet.betType,
-        player: finalBet.player,
-        odds: finalBet.odds,
-        eventDate: currentHeader ? currentHeader.eventDate : new Date(),
-        score: currentMatch ? currentMatch.score : '',
-      });
+      pendingBetLines.push(line);
+    } else {
+      // Riga non scommessa (summary, metadata, etc.) → flush pending
+      flushPendingBet();
     }
   }
+  // Flush l'ultima scommessa pendente
+  flushPendingBet();
 
   // Fallback: se non trova nessuna scommessa strutturata
   if (bets.length === 0) {
@@ -434,6 +524,7 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
     // Estrai importi, quota e data giocata
     let stake = extractAmount(text, 'importo\\s*(?:pagato|giocato|scommesso)');
     if (!stake) stake = extractAmount(text, 'totale\\s*importo\\s*scommesso');
+    if (!stake) stake = extractAmount(text, 'puntata');
     if (!stake) stake = extractAmount(text, 'importo');
     // Cerca prima "vincita potenziale", poi "vincita" generica
     let potentialWin = extractAmount(text, 'vincita\\s*potenziale');

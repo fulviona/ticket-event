@@ -278,6 +278,38 @@ body {
   line-height: 1.4;
 }
 
+/* Tabella scommesse per match */
+.bet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.bet-table thead th {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  color: #78909c;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #2a3a4a;
+  font-weight: 600;
+}
+
+.bet-table .bet-row td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid #1e2d3d;
+  vertical-align: top;
+}
+
+.bet-table .bet-row:last-child td {
+  border-bottom: none;
+}
+
+.bet-table .bet-row:hover {
+  background: rgba(79, 195, 247, 0.04);
+}
+
 /* Leaderboard */
 .leaderboard {
   background: #1a2530;
