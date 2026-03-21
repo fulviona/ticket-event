@@ -570,6 +570,8 @@ function parseBets(text) {
     const fullLine = pendingBetLines.join(' ');
     const finalBet = parseBetLine(fullLine);
 
+    console.log(`[parseBets] flush: "${fullLine}" → match="${currentMatch?.match}", sel="${finalBet.selection}", odds=${finalBet.odds}, pred="${finalBet.prediction}"`);
+
     bets.push({
       match: currentMatch ? currentMatch.match : 'Scommessa',
       sport: currentHeader ? currentHeader.sport : '',
@@ -585,6 +587,9 @@ function parseBets(text) {
     });
     pendingBetLines = [];
   };
+
+  // Log prime 30 righe per debug struttura Sportium
+  console.log('[parseBets] Prime 30 righe:', lines.slice(0, 30).map((l, i) => `  ${i}: "${l.trim()}"`).join('\n'));
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
