@@ -83,15 +83,68 @@ function Home({ user }) {
       loadTickets();
     } catch (err) {
       if (err.response?.status === 403 && err.response?.data?.needsClientFetch) {
-        // Il server non riesce ad accedere al sito, mostra il box per incollare
-        setShowPasteBox(true);
-        setError('Il sito blocca il server. Apri il link nel tuo browser, seleziona tutto (Ctrl+A), copia (Ctrl+C) e incolla qui sotto.');
+        // Il server non riesce ad accedere — apri il link e auto-leggi clipboard
+        setMessage('');
+        startClientFetchFlow(ticketUrl.trim());
       } else {
         setError(err.response?.data?.message || 'Errore durante l\'importazione dal link.');
       }
     } finally {
       setImportingUrl(false);
     }
+  };
+
+  // Flusso client-side: apre il link, aspetta che l'utente copi e torni,
+  // auto-legge la clipboard e importa
+  const startClientFetchFlow = (url) => {
+    // Apri il link in un nuovo tab
+    window.open(url, '_blank');
+
+    setShowPasteBox(true);
+    setError('');
+    setMessage('📋 Ho aperto il ticket in una nuova scheda. Seleziona tutto il testo (Ctrl+A / ⌘+A), copialo (Ctrl+C / ⌘+C), poi torna qui — importerò automaticamente!');
+
+    // Quando l'utente torna su questa tab, prova a leggere la clipboard
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== 'visible') return;
+
+      // Rimuovi il listener subito per evitare trigger multipli
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+      try {
+        // Prova a leggere la clipboard automaticamente
+        const clipboardText = await navigator.clipboard.readText();
+        if (clipboardText && clipboardText.length > 50) {
+          setImportingUrl(true);
+          setMessage('Testo copiato rilevato! Importazione in corso...');
+          setError('');
+          try {
+            await importTicketText(clipboardText, url);
+            setMessage('Ticket importato con successo!');
+            setTicketUrl('');
+            setPasteText('');
+            setShowPasteBox(false);
+            loadTickets();
+          } catch (importErr) {
+            setError(importErr.response?.data?.message || 'Errore durante l\'importazione. Prova a incollare manualmente qui sotto.');
+            setPasteText(clipboardText);
+            setMessage('');
+          } finally {
+            setImportingUrl(false);
+          }
+        }
+      } catch (clipErr) {
+        // Clipboard API non disponibile o permesso negato — resta il box manuale
+        console.log('Clipboard API non disponibile, usa il box manuale');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Timeout: dopo 2 minuti rimuovi il listener
+    setTimeout(() => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, 120000);
   };
 
   const handlePasteImport = async () => {
@@ -384,7 +437,7 @@ function Home({ user }) {
           {showPasteBox && (
             <div style={{ marginTop: '1rem' }}>
               <p style={{ color: '#ffb74d', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                Apri il link nel tuo browser, seleziona tutto il testo della pagina (Ctrl+A / Cmd+A), copialo (Ctrl+C / Cmd+C) e incollalo qui:
+                Se l'importazione automatica non ha funzionato, incolla qui il testo copiato:
               </p>
               <textarea
                 value={pasteText}
