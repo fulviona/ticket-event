@@ -42,7 +42,7 @@ function App() {
       <div className="app">
         <CookieBanner />
         <nav className="navbar">
-          <Link to="/" className="logo">Ticket Event</Link>
+          <Link to={user?.role === 'admin' ? '/admin/analytics' : '/'} className="logo">Ticket Event</Link>
           <div className="nav-links">
             {user ? (
               <>
@@ -91,7 +91,7 @@ function App() {
           <Routes>
             <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/" />} />
             <Route path="/register" element={!user ? <Register setUser={setUser} /> : <Navigate to="/" />} />
-            <Route path="/" element={user ? <Home user={user} /> : <Navigate to="/login" />} />
+            <Route path="/" element={user ? (user.role === 'admin' ? <Navigate to="/admin/analytics" /> : <Home user={user} />) : <Navigate to="/login" />} />
             <Route path="/profile" element={user ? <Profile user={user} setUser={setUser} /> : <Navigate to="/login" />} />
             <Route path="/bacheca" element={user ? <Bacheca /> : <Navigate to="/login" />} />
             <Route path="/leaderboard" element={user ? <Leaderboard /> : <Navigate to="/login" />} />

@@ -335,46 +335,86 @@ function parseMatchLine(line) {
   return null;
 }
 
-// Riga di scommessa: "CELIK, ZEKI (ROMA) O SUO SOSTITUTO CARTELLINO... SI 4.32"
-// Può contenere odds a metà riga (es: "SI |4.32 FISCHIO FINALE")
+// Riga di scommessa: formati supportati:
+// "CELIK, ZEKI (ROMA) O SUO SOSTITUTO CARTELLINO... SI 4.32"
+// "U/O 1.5 SQUADRA 2 OVER 1.33"  (Sportium)
+// "DOPPIA CHANCE IN + U/O 1.5 1X + OVER 1.31"  (combo)
+// "PARZIALE/FINALE +U/O 1.5 1/1+OVER 1.51"
+// "MULTIGOL 1-3 CASA SI 1.50"
 function parseBetLine(line) {
-  // Normalizza separatori: "|" → spazio, "@" → spazio, "©" → spazio (OCR artifacts)
-  let normalized = line.replace(/[|@©®]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Normalizza separatori OCR: "|" "©" "®" → spazio, pulisci "[" "]" isolati (artefatti OCR)
+  let normalized = line.replace(/[|@©®]/g, ' ').replace(/\s*[\[\]]\s*/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // Cerca quota: numero decimale preceduto da selezione o separatore
-  // Pattern: "SI 4.32" o "NO 2.05" o "SI|4.32" o standalone "4.32" alla fine o a metà riga
   let odds;
   let selection = '';
 
-  // Pattern 1: "SI/NO <quota>" ovunque nella riga
-  const selOddsMatch = normalized.match(/\b(SI|NO|S[IÌ])\s+(\d+[.,]\d{1,2})\b/i);
-  if (selOddsMatch) {
-    selection = selOddsMatch[1].toUpperCase().replace('SÌ', 'SI');
-    odds = parseFloat(selOddsMatch[2].replace(',', '.'));
-  } else {
-    // Pattern 2: quota alla fine della riga
+  // Strategia: cerchiamo la quota (numero decimale tipicamente 1.xx-99.xx) e il testo immediatamente prima.
+  // La selezione è il blocco di testo che precede la quota e non fa parte della descrizione scommessa.
+
+  // Pattern selezioni possibili (ordine di priorità):
+  // Combo: "1X + OVER", "X2 + UNDER", "1 + OVER", "1X+OVER"
+  // Parziale: "1/1+OVER", "1/X+OVER", "X/2+UNDER", "1/1", "X/2"
+  // Semplici: "OVER", "UNDER", "SI", "NO", "SÌ", "GOAL", "NO GOAL", "GG", "NG", "PARI", "DISPARI"
+  // 1X2: "1", "X", "2", "1X", "X2", "12"
+
+  // Cerca: <selezione> <quota> alla fine della riga o seguita da testo post-quota (es. "FISCHIO FINALE")
+  const selectionPatterns = [
+    // Combo parziale+over: "1/1+OVER", "X/2+UNDER", etc.
+    /\b(\d\/[1X2]\s*\+\s*OVER)\s+(\d+[.,]\d{1,2})\b/i,
+    /\b(\d\/[1X2]\s*\+\s*UNDER)\s+(\d+[.,]\d{1,2})\b/i,
+    // Combo doppia chance+over: "1X + OVER", "X2 + OVER", "12 + OVER"
+    /\b([1X2]{2}\s*\+\s*OVER)\s+(\d+[.,]\d{1,2})\b/i,
+    /\b([1X2]{2}\s*\+\s*UNDER)\s+(\d+[.,]\d{1,2})\b/i,
+    // Combo 1X2+over: "1 + OVER", "2 + UNDER"
+    /\b([1X2]\s*\+\s*OVER)\s+(\d+[.,]\d{1,2})\b/i,
+    /\b([1X2]\s*\+\s*UNDER)\s+(\d+[.,]\d{1,2})\b/i,
+    // Parziale/finale semplice: "1/1", "1/X", "X/2"
+    /\b([1X2]\/[1X2])\s+(\d+[.,]\d{1,2})\b/i,
+    // Over/Under semplice
+    /\b(OVER)\s+(\d+[.,]\d{1,2})\b/i,
+    /\b(UNDER)\s+(\d+[.,]\d{1,2})\b/i,
+    // SI/NO
+    /\b(SI|S[IÌ])\s+(\d+[.,]\d{1,2})\b/i,
+    /\b(NO)\s+(\d+[.,]\d{1,2})\b/i,
+    // GOAL/NO GOAL
+    /\b(NO\s*GOAL)\s+(\d+[.,]\d{1,2})\b/i,
+    /\b(GOAL)\s+(\d+[.,]\d{1,2})\b/i,
+    /\b(GG|NG)\s+(\d+[.,]\d{1,2})\b/i,
+    // PARI/DISPARI
+    /\b(PARI|DISPARI)\s+(\d+[.,]\d{1,2})\b/i,
+    // 1X2 doppia chance: "1X", "X2", "12"
+    /\b(1X|X2|12)\s+(\d+[.,]\d{1,2})\b/i,
+    // 1X2 semplice: "1", "X", "2" (solo se seguiti da quota)
+    /\b([1X2])\s+(\d+[.,]\d{1,2})\s*$/i,
+  ];
+
+  let matchedPattern = null;
+  for (const pat of selectionPatterns) {
+    const m = normalized.match(pat);
+    if (m) {
+      matchedPattern = m;
+      selection = m[1].toUpperCase().replace('SÌ', 'SI').replace(/\s+/g, ' ').trim();
+      odds = parseFloat(m[2].replace(',', '.'));
+      break;
+    }
+  }
+
+  // Fallback: quota alla fine senza selezione riconosciuta
+  if (!odds) {
     const oddsEnd = normalized.match(/\b(\d+[.,]\d{1,2})\s*$/);
     if (oddsEnd) {
       odds = parseFloat(oddsEnd[1].replace(',', '.'));
     }
-    // Pattern 3: "1/X/2 <quota>" per scommesse 1X2
-    const sel1x2Match = normalized.match(/\b(1|X|2)\s+(\d+[.,]\d{1,2})\b/i);
-    if (sel1x2Match && !odds) {
-      selection = sel1x2Match[1].toUpperCase();
-      odds = parseFloat(sel1x2Match[2].replace(',', '.'));
-    }
   }
 
-  // Rimuovi odds e selezione dalla descrizione, ma conserva testo significativo dopo la quota
+  // Rimuovi selezione+quota dalla descrizione
   let description = normalized;
-  if (selOddsMatch) {
-    const idx = description.indexOf(selOddsMatch[0]);
-    if (idx > 0) {
-      // Testo prima di "SI 4.32"
+  if (matchedPattern) {
+    const idx = description.indexOf(matchedPattern[0]);
+    if (idx >= 0) {
       const before = description.substring(0, idx).trim();
-      // Testo dopo "SI 4.32" (potrebbe contenere "FISCHIO FINALE" o altra parte della descrizione)
-      const after = description.substring(idx + selOddsMatch[0].length).trim();
-      // Se il testo dopo la quota contiene parole significative della scommessa, riattaccalo
+      const after = description.substring(idx + matchedPattern[0].length).trim();
+      // Conserva testo significativo dopo la quota (es. "FISCHIO FINALE")
       if (after && /[A-Za-zÀ-ú]{3,}/.test(after)) {
         description = before + ' ' + after;
       } else {
@@ -382,12 +422,12 @@ function parseBetLine(line) {
       }
     }
   } else if (odds) {
-    // Rimuovi la quota alla fine
+    // Rimuovi solo la quota alla fine
     description = description.replace(/\s*\d+[.,]\d{1,2}\s*$/, '').trim();
   }
 
   // Pulizia residui
-  description = description.replace(/\|\s*$/, '').replace(/\s+/g, ' ').trim();
+  description = description.replace(/\s+/g, ' ').trim();
 
   // Estrai nome giocatore: "COGNOME, NOME (SQUADRA)" o "COGNOME NOME (SQUADRA):"
   let player = '';
@@ -419,7 +459,7 @@ function isBetDescriptionLine(line) {
   // Non è una riga di match
   if (parseMatchLine(line)) return false;
   // Non è una riga di riepilogo o metadati ticket
-  if (/^(quota|importo|vincita|puntata|giocata\s*del|aams|adm|codice|data[:\s]|ora[:\s]|bonus|ib[-]|cc[-]|nc[-]|pv[-]|pal[:\s]|avv[:\s]|singola|multipla|sistema|totale\s*importo|importo\s*scommesso|concession|punto\s*vendita|ricevuta)/i.test(line.trim())) return false;
+  if (/^(quota|importo|vincita|puntata|giocata\s*del|aams|adm|codice|data[:\s]|ora[:\s]|bonus|ib[-]|cc[-]|nc[-]|pv[-]|pal[:\s]|avv[:\s]|singola|multipla|sistema|totale\s*importo|importo\s*scommesso|concession|punto\s*vendita|ricevuta|stato[:\s])/i.test(line.trim())) return false;
   // Non è un barcode o codice operatore
   if (/^[A-Z]{2,3}[-]\d/i.test(line.trim())) return false;
   // Non è troppo corta (probabilmente rumore OCR)
@@ -437,8 +477,8 @@ function startsNewBet(line) {
   if (/^[A-ZÀ-Ú][A-ZÀ-Ú\s,.']+\s*\([A-Za-zÀ-ú\s.]+\)/i.test(line)) return true;
   // Pattern con ":" dopo la parentesi: "MALEN, DONYELL (ROMA): SEGNA O..."
   if (/^[A-ZÀ-Ú][A-ZÀ-Ú\s,.']+\s*\([A-Za-zÀ-ú\s.]+\)\s*:/i.test(line)) return true;
-  // Pattern scommessa non-giocatore (1X2, Under/Over, etc.) che inizia con keyword chiave
-  if (/^(1X2|UNDER|OVER|GOAL|NO\s*GOAL|DOPPIA\s*CHANCE|HANDICAP|RIS\.?\s*ES|PARI|DISPARI)/i.test(line)) return true;
+  // Pattern scommessa non-giocatore (1X2, Under/Over, Multigol, Combo, etc.)
+  if (/^(1X2|UNDER|OVER|U\/O|GOAL|NO\s*GOAL|GG|NG|DOPPIA\s*CHANCE|HANDICAP|RIS\.?\s*ES|PARI|DISPARI|MULTIGOL|PARZIALE|COMBO|SEGNA\s*GOL|VINCE\s*A\s*ZERO|SOMMA\s*GOAL|CORNER|ANGOLI|CARTELLINI|ESPULSIONE|AUTORETE|RIGORE|RIBALTONE)/i.test(line)) return true;
   return false;
 }
 
@@ -502,8 +542,8 @@ function parseBets(text) {
         flushPendingBet();
       }
       pendingBetLines.push(line);
-    } else if (pendingBetLines.length > 0 && /^\s*(SI|NO|S[IÌ])\s+\d+[.,]\d{1,2}\s*$/i.test(line)) {
-      // Riga con solo selezione+quota (es: "SI 2.05") → appartiene alla scommessa precedente
+    } else if (pendingBetLines.length > 0 && /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?|\d\/[1X2](?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?)\s+\d+[.,]\d{1,2}\s*$/i.test(line)) {
+      // Riga con selezione+quota (es: "SI 2.05", "OVER 1.33", "1X + OVER 1.31") → scommessa precedente
       pendingBetLines.push(line);
     } else if (pendingBetLines.length > 0 && /^\s*\d+[.,]\d{1,2}\s*$/i.test(line)) {
       // Riga con solo quota (es: "2.05") → appartiene alla scommessa precedente
