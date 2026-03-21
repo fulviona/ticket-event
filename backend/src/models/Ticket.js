@@ -1,11 +1,16 @@
 const mongoose = require('mongoose');
 
 const betSchema = new mongoose.Schema({
-  match: { type: String, required: true },
-  prediction: { type: String, required: true },
-  betType: { type: String, default: 'N/D' }, // es: 1X2, Over/Under, Marcatore, Handicap...
+  match: { type: String, required: true }, // Es: "Roma vs Bologna"
+  sport: { type: String, default: '' }, // Es: "Calcio"
+  competition: { type: String, default: '' }, // Es: "Europa League"
+  prediction: { type: String, required: true }, // Descrizione completa della scommessa
+  selection: { type: String, default: '' }, // Selezione: SI, NO, 1, X, 2, Over, Under...
+  betType: { type: String, default: 'N/D' }, // Categoria scommessa
+  player: { type: String, default: '' }, // Nome giocatore (se scommessa su giocatore)
   odds: { type: Number },
   eventDate: { type: Date },
+  score: { type: String, default: '' }, // Risultato live/finale es: "3:3"
 });
 
 const ticketSchema = new mongoose.Schema({
@@ -17,12 +22,12 @@ const ticketSchema = new mongoose.Schema({
   ticketId: {
     type: String,
     unique: true,
-    sparse: true, // permette null ma se presente deve essere unico
+    sparse: true,
   },
   bets: [betSchema],
-  stake: { type: Number }, // importo puntato
-  potentialWin: { type: Number }, // vincita potenziale
-  totalOdds: { type: Number }, // quota totale
+  stake: { type: Number },
+  potentialWin: { type: Number },
+  totalOdds: { type: Number },
   status: {
     type: String,
     enum: ['pending', 'won', 'lost'],
@@ -35,6 +40,7 @@ const ticketSchema = new mongoose.Schema({
   ocrRawText: {
     type: String,
   },
+  playedAt: { type: Date }, // Data/ora della giocata
   createdAt: {
     type: Date,
     default: Date.now,
