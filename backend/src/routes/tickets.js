@@ -2,8 +2,12 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const Tesseract = require('tesseract.js');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const Ticket = require('../models/Ticket');
 const { auth } = require('../middleware/auth');
+
+puppeteer.use(StealthPlugin());
 
 const router = express.Router();
 
@@ -802,6 +806,58 @@ async function parseSportiumHtml(html, url) {
   return { bets: [{ match: 'Ticket da link', prediction: 'Da verificare manualmente', betType: 'N/D', eventDate: new Date() }], stake, potentialWin, totalOdds, ticketId, playedAt };
 }
 
+// Funzione per aprire URL con Puppeteer (browser headless reale)
+async function fetchWithBrowser(url) {
+  const browser = await puppeteer.launch({
+    headless: 'new',
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--window-size=1920,1080',
+    ],
+    // Usa chromium di sistema se disponibile, altrimenti quello di puppeteer
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+  });
+
+  try {
+    const page = await browser.newPage();
+
+    // Simula un browser reale
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+    });
+
+    // Naviga alla pagina e aspetta che il contenuto si carichi
+    await page.goto(url, {
+      waitUntil: 'networkidle2',
+      timeout: 30000,
+    });
+
+    // Aspetta che il contenuto della pagina sia caricato (SPA)
+    // Prova ad aspettare un elemento tipico del ticket
+    try {
+      await page.waitForFunction(
+        () => document.body.innerText.length > 200,
+        { timeout: 10000 }
+      );
+    } catch (e) {
+      // Se non trova contenuto sufficiente, aspetta ancora un po'
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
+    // Estrai sia l'HTML che il testo visibile
+    const html = await page.content();
+    const text = await page.evaluate(() => document.body.innerText);
+
+    return { html, text };
+  } finally {
+    await browser.close();
+  }
+}
+
 // Import ticket da URL (link condivisione Sportium o altri)
 router.post('/import-url', auth, async (req, res) => {
   try {
@@ -829,95 +885,51 @@ router.post('/import-url', auth, async (req, res) => {
       }
     }
 
-    // Fetch della pagina - headers completi per simulare un browser reale
-    const browserHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-      'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-      'Sec-Ch-Ua-Mobile': '?0',
-      'Sec-Ch-Ua-Platform': '"Windows"',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1',
-      'Upgrade-Insecure-Requests': '1',
-      'Referer': 'https://www.google.com/',
-    };
+    console.log(`[Import URL] Apertura con browser headless: ${url}`);
 
-    let html = null;
-    let fetchError = null;
-
-    // Tentativo 1: fetch diretto della pagina
+    // Usa Puppeteer per caricare la pagina come un browser reale
+    let html, text;
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      const response = await fetch(url, {
-        headers: browserHeaders,
-        redirect: 'follow',
-        signal: controller.signal,
+      const result = await fetchWithBrowser(url);
+      html = result.html;
+      text = result.text;
+    } catch (browserErr) {
+      console.error('Errore Puppeteer:', browserErr.message);
+      return res.status(500).json({
+        message: `Errore nell'apertura del link: ${browserErr.message}. Verifica che il link sia corretto e riprova.`,
       });
-      clearTimeout(timeout);
-      if (response.ok) {
-        html = await response.text();
-      } else {
-        fetchError = response.status;
-      }
-    } catch (err) {
-      console.error('Fetch tentativo 1 fallito:', err.message);
-      fetchError = err.message;
     }
 
-    // Tentativo 2: se la pagina è una SPA, prova a cercare un endpoint API
-    if (!html || html.length < 500) {
-      const ticketCode = urlTicketId ? urlTicketId[1] : '';
-      const apiUrls = [
-        url.replace('/sport/ticket/', '/api/sport/ticket/'),
-        url.replace('/sport/ticket/', '/api/v1/ticket/'),
-        `https://${urlDomain[1]}/api/ticket/${ticketCode}`,
-      ];
-      for (const apiUrl of apiUrls) {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 8000);
-          const resp = await fetch(apiUrl, {
-            headers: { ...browserHeaders, 'Accept': 'application/json, text/html, */*' },
-            signal: controller.signal,
-          });
-          clearTimeout(timeout);
-          if (resp.ok) {
-            const body = await resp.text();
-            if (body.length > 100) {
-              html = body;
-              break;
-            }
-          }
-        } catch (e) {
-          // ignora, prova il prossimo
-        }
-      }
-    }
-
-    if (!html) {
+    if (!html || (!text || text.trim().length < 50)) {
       return res.status(400).json({
-        message: `Il sito del concessionario blocca l'accesso automatico (errore ${fetchError || 'timeout'}). Usa l'opzione "Incolla testo" per importare il ticket: apri il link nel browser, seleziona tutto il testo della pagina (Ctrl+A), copialo (Ctrl+C) e incollalo nell'apposito campo.`,
+        message: 'La pagina non contiene dati del ticket. Verifica che il link sia corretto.',
       });
     }
+
+    console.log(`[Import URL] Pagina caricata, testo estratto: ${text.length} caratteri`);
 
     // Rileva concessionario dall'URL
     const concessionario = detectConcessionario(url);
 
-    // Parse HTML
+    // Parse HTML/testo
     const parsed = await parseSportiumHtml(html, url);
+
+    // Se il parser HTML non ha trovato scommesse, prova con il testo visibile
+    if (!parsed.bets || parsed.bets.length === 0 ||
+        (parsed.bets.length === 1 && parsed.bets[0].match === 'Ticket da link')) {
+      // Prova a parsare il testo visibile come se fosse OCR
+      const textParsed = await parseSportiumHtml(`<body>${text}</body>`, url);
+      if (textParsed.bets && textParsed.bets.length > 0 &&
+          !(textParsed.bets.length === 1 && textParsed.bets[0].match === 'Ticket da link')) {
+        Object.assign(parsed, textParsed);
+      }
+    }
 
     const ticket = new Ticket({
       user: req.user._id,
       ticketId: parsed.ticketId,
       concessionario,
-      ocrRawText: html.substring(0, 50000),
+      ocrRawText: text.substring(0, 50000),
       bets: parsed.bets,
       stake: parsed.stake,
       potentialWin: parsed.potentialWin,
