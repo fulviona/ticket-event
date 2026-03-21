@@ -110,43 +110,65 @@ function detectBetType(text) {
   return 'N/D';
 }
 
-// ===== Regole di refertazione per tipo scommessa =====
+// ===== Regole di refertazione per tipo scommessa (fonti: ADM, Goldbet, SNAI, Sisal, Eurobet, eplay24) =====
 const SETTLEMENT_RULES = {
-  'Cartellino': 'Cartellino giallo=1pt, rosso diretto=2pt, doppio giallo=3pt. Max 3pt per giocatore. Vale anche da panchina e dopo fischio finale se specificato "ANCHE IN PANCHINA E DOPO".',
-  'Marcatore': 'Il giocatore deve segnare almeno un gol. Autogol NON conta. Se il giocatore non entra in campo, scommessa rimborsata. Per Marcatore DUO: vale anche il gol del sostituto.',
-  'Palo/Traversa': 'Il giocatore deve colpire palo o traversa (senza segnare direttamente da quel tiro). Se specificato "O IL SUO SOSTITUTO", vale anche per il sostituto.',
-  'Assist': 'Il giocatore deve fornire l\'ultimo passaggio prima del gol. Se specificato "O IL SUO SOSTITUTO", vale anche per il sostituto.',
-  'Under/Over': 'Conta il numero totale di gol al 90\'+recupero. Supplementari e rigori NON contano.',
-  'Goal/No Goal': 'GOAL: entrambe le squadre devono segnare almeno 1 gol. NO GOAL: almeno una squadra non segna.',
-  '1X2': '1=vittoria casa, X=pareggio, 2=vittoria ospite. Conta il risultato al 90\'+recupero.',
+  'Cartellino': 'Giallo=1pt, rosso diretto=2pt, doppio giallo=3pt (1+2). Max 3pt per giocatore. Standard: valgono solo cartellini a giocatori in campo. Se giocatore non partecipa: rimborsata.',
+  'Marcatore': 'Il giocatore deve segnare almeno 1 gol nei 90\'+recupero. Autogol NON conta. Se non entra in campo: rimborsata. DUO/Tandem: vale anche il gol del sostituto diretto.',
+  'Palo/Traversa': 'Il giocatore deve colpire almeno un palo o traversa. Se "O SUO SOSTITUTO": vale anche il sostituto. Se non partecipa: rimborsata.',
+  'Assist': 'Il giocatore deve fornire l\'ultimo passaggio decisivo prima del gol (dati OPTA ufficiali). Se "O SUO SOSTITUTO": vale anche il sostituto. Se non partecipa: rimborsata.',
+  'Under/Over': 'Conta il totale gol al 90\'+recupero. Supplementari e rigori NON contano. Per U/O giocatore (tiri, falli): dati OPTA ufficiali.',
+  'Goal/No Goal': 'GOAL (GG): entrambe le squadre segnano almeno 1 gol. NO GOAL (NG): almeno una squadra non segna. Risultato al 90\'+recupero.',
+  '1X2': '1=vittoria casa, X=pareggio, 2=vittoria ospite. Risultato al 90\'+recupero. Supplementari/rigori NON contano.',
   'Doppia Chance': '1X=casa o pareggio, 12=casa o ospite, X2=pareggio o ospite. Risultato al 90\'+recupero.',
-  'Handicap': 'Handicap Europeo: 3 esiti (1, X, 2) applicando l\'handicap. Handicap Asiatico: 2 esiti, possibile rimborso parziale.',
-  'Risultato Esatto': 'Pronostico esatto del punteggio finale al 90\'+recupero.',
-  'Parziale/Finale': 'Combinazione risultato primo tempo e risultato finale (es: 1/X = casa vince 1T, pareggio finale).',
-  'Combo 1X2+U/O': 'Combinazione risultato 1X2 + Under/Over. Entrambe le condizioni devono verificarsi.',
-  'Combo 1X2+GG/NG': 'Combinazione risultato 1X2 + Goal/No Goal. Entrambe le condizioni devono verificarsi.',
-  'Corner': 'Conta il numero di calci d\'angolo battuti. Conteggio ufficiale della lega.',
-  'Pari/Dispari': 'PARI: totale gol pari (0, 2, 4...). DISPARI: totale gol dispari (1, 3, 5...). 0-0 = PARI.',
-  'Somma Goal': 'Fascia esatta del totale gol segnati nella partita.',
-  'Multigol': 'Il totale gol deve rientrare nell\'intervallo specificato (es: 1-3 gol).',
-  'Tiri': 'Conteggio tiri in porta/totali del giocatore. Statistiche ufficiali Opta/provider dati.',
-  'Rigore': 'Deve essere assegnato almeno un calcio di rigore durante i 90\'+recupero.',
-  'Ribaltone': 'Una squadra deve andare in svantaggio e poi vincere la partita.',
-  'Autorete': 'Deve essere segnato almeno un autogol durante la partita.',
+  'Handicap': 'Europeo: 3 esiti (1/X/2) con handicap applicato. Asiatico: 2 esiti, possibile rimborso parziale su linee intere. Risultato al 90\'+recupero.',
+  'Risultato Esatto': 'Pronostico esatto del punteggio al 90\'+recupero. "ALTRO" copre tutti i risultati non elencati.',
+  'Parziale/Finale': 'Combinazione risultato 1T e risultato finale (es: 1/X = casa vince 1T, pareggio finale). Entrambe devono verificarsi.',
+  'Combo 1X2+U/O': 'Risultato 1X2 + Under/Over. Entrambe le condizioni devono verificarsi al 90\'+recupero.',
+  'Combo 1X2+GG/NG': 'Risultato 1X2 + Goal/No Goal. Entrambe le condizioni devono verificarsi al 90\'+recupero.',
+  'Corner': 'Conta il numero di calci d\'angolo effettivamente battuti. Corner assegnati ma non battuti NON contano. Dati ufficiali.',
+  'Pari/Dispari': 'PARI: totale gol pari (0, 2, 4...). DISPARI: totale gol dispari (1, 3, 5...). 0-0 = PARI. Risultato al 90\'+recupero.',
+  'Somma Goal': 'Fascia esatta del totale gol nella partita al 90\'+recupero.',
+  'Multigol': 'Totale gol deve rientrare nell\'intervallo (es: Multigol 1-3 = da 1 a 3 gol). Risultato al 90\'+recupero.',
+  'Tiri': 'Tiri in porta: tentativi diretti nello specchio della porta. Palo/traversa NON conta come tiro in porta (standard). Tiri totali: include fuori e bloccati. Dati OPTA.',
+  'Rigore': 'Almeno un calcio di rigore deve essere assegnato nei 90\'+recupero. Include rigori parati/sbagliati.',
+  'Ribaltone': 'Una squadra deve andare in svantaggio e poi vincere. Non basta pareggiare dopo essere andati sotto.',
+  'Autorete': 'Almeno un autogol deve essere segnato nella partita nei 90\'+recupero.',
+  'Falli': 'Falli commessi dal giocatore. Solo quelli per cui l\'arbitro fischia fallo (vantaggio NON conta). Dati OPTA.',
+  'Fuorigioco': 'Fuorigioco fischiati dall\'arbitro. Dati ufficiali della competizione.',
+  'Squadra Primo Gol': 'Quale squadra segna il primo gol nella partita. Se 0-0: tutte le scommesse perdenti.',
 };
 
 function getSettlementInfo(betType, prediction) {
-  // Controlla se c'è "ANCHE IN PANCHINA E DOPO" per cartellini speciali
+  // Cartellino PLUS / DUO / Ultra: "ANCHE IN PANCHINA E DOPO"
   if (betType === 'Cartellino' && /anche\s*in\s*panchina/i.test(prediction)) {
-    return 'Cartellino PLUS: vale anche se ricevuto dalla panchina o dopo il fischio finale. Se il giocatore non è convocato, scommessa rimborsata. Se c\'è "O SUO SOSTITUTO", vale anche il cartellino del sostituto.';
+    let info = 'Cartellino PLUS (Goldbet) / DUO (Sisal) / Ultra (SNAI): il cartellino vale anche se ricevuto dalla PANCHINA, dopo la SOSTITUZIONE o dopo il FISCHIO FINALE. Include proteste durante l\'intervallo.';
+    if (/o\s*suo\s*sostituto/i.test(prediction)) {
+      info += ' Con "O SUO SOSTITUTO": vale anche il cartellino del sostituto diretto.';
+    }
+    info += ' Se il giocatore non e\' convocato/non partecipa: rimborsata. Giallo=1pt, rosso diretto=2pt, doppio giallo=3pt.';
+    return info;
   }
-  // Marcatore Plus (segna o colpisce palo/traversa)
+  // Marcatore Plus: "SEGNA O COLPISCE PALO/TRAVERSA"
   if (/segna\s+o\s+colpisce\s+palo/i.test(prediction)) {
-    return 'Marcatore PLUS: il giocatore deve segnare OPPURE colpire palo/traversa. Se specificato "O IL SUO SOSTITUTO", vale anche per il sostituto. Se non entra in campo, rimborsata.';
+    let info = 'Marcatore PLUS (Goldbet) / DUO (Sisal) / Ultra (SNAI): VINTA se il giocatore segna almeno 1 gol OPPURE colpisce almeno un palo/traversa. Autogol NON conta.';
+    if (/o\s*il?\s*suo\s*sostituto/i.test(prediction)) {
+      info += ' Con "O IL SUO SOSTITUTO": vale anche se il sostituto diretto segna o colpisce il legno.';
+    }
+    info += ' Se non entra in campo: rimborsata. Vale nei 90\'+recupero+supplementari. Rigori esclusi. SNAI Ultra: gol annullati (es. VAR) contano come evento vincente.';
+    return info;
   }
   // Segna o fa assist
   if (/segna\s+o\s+fa\s+assist/i.test(prediction)) {
-    return 'Il giocatore deve segnare OPPURE fornire un assist. Se specificato "O IL SUO SOSTITUTO", vale anche per il sostituto. Se non entra in campo, rimborsata.';
+    let info = 'VINTA se il giocatore segna almeno 1 gol OPPURE fornisce almeno 1 assist (ultimo passaggio decisivo prima del gol, dati OPTA).';
+    if (/o\s*il?\s*suo\s*sostituto/i.test(prediction)) {
+      info += ' Con "O IL SUO SOSTITUTO": vale anche per il sostituto diretto.';
+    }
+    info += ' Se non entra in campo: rimborsata. Autogol NON conta come gol segnato.';
+    return info;
+  }
+  // Standard cartellino (non Plus)
+  if (betType === 'Cartellino' && /o\s*suo\s*sostituto/i.test(prediction)) {
+    return 'Cartellino con sostituto: vale anche il cartellino del sostituto diretto. Standard: solo cartellini a giocatori IN CAMPO (panchina/dopo fischio NON contano). Se non partecipa: rimborsata.';
   }
   return SETTLEMENT_RULES[betType] || '';
 }
