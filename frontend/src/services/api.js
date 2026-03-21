@@ -45,6 +45,7 @@ export const editTicket = (id, data) => api.patch(`/tickets/${id}/edit`, data);
 export const deleteTicket = (id) => api.delete(`/tickets/${id}`);
 export const reparseTicket = (id) => api.patch(`/tickets/${id}/reparse`);
 export const importTicketUrl = (url) => api.post('/tickets/import-url', { url });
+export const importTicketText = (text, sourceUrl) => api.post('/tickets/import-text', { text, sourceUrl });
 
 // Events
 export const getEvents = () => api.get('/events');

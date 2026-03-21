@@ -829,31 +829,81 @@ router.post('/import-url', auth, async (req, res) => {
       }
     }
 
-    // Fetch della pagina
-    let html;
+    // Fetch della pagina - headers completi per simulare un browser reale
+    const browserHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+      'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"Windows"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
+      'Referer': 'https://www.google.com/',
+    };
+
+    let html = null;
+    let fetchError = null;
+
+    // Tentativo 1: fetch diretto della pagina
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
+      const timeout = setTimeout(() => controller.abort(), 15000);
       const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'it-IT,it;q=0.9',
-        },
+        headers: browserHeaders,
+        redirect: 'follow',
         signal: controller.signal,
       });
       clearTimeout(timeout);
-
-      if (!response.ok) {
-        return res.status(400).json({
-          message: `Impossibile accedere al link (errore ${response.status}). Verifica che il link sia corretto.`,
-        });
+      if (response.ok) {
+        html = await response.text();
+      } else {
+        fetchError = response.status;
       }
-      html = await response.text();
-    } catch (fetchErr) {
-      console.error('Errore fetch URL:', fetchErr.message);
+    } catch (err) {
+      console.error('Fetch tentativo 1 fallito:', err.message);
+      fetchError = err.message;
+    }
+
+    // Tentativo 2: se la pagina è una SPA, prova a cercare un endpoint API
+    if (!html || html.length < 500) {
+      const ticketCode = urlTicketId ? urlTicketId[1] : '';
+      const apiUrls = [
+        url.replace('/sport/ticket/', '/api/sport/ticket/'),
+        url.replace('/sport/ticket/', '/api/v1/ticket/'),
+        `https://${urlDomain[1]}/api/ticket/${ticketCode}`,
+      ];
+      for (const apiUrl of apiUrls) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 8000);
+          const resp = await fetch(apiUrl, {
+            headers: { ...browserHeaders, 'Accept': 'application/json, text/html, */*' },
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (resp.ok) {
+            const body = await resp.text();
+            if (body.length > 100) {
+              html = body;
+              break;
+            }
+          }
+        } catch (e) {
+          // ignora, prova il prossimo
+        }
+      }
+    }
+
+    if (!html) {
       return res.status(400).json({
-        message: 'Impossibile accedere al link. Verifica la connessione e che il link sia corretto.',
+        message: `Il sito del concessionario blocca l'accesso automatico (errore ${fetchError || 'timeout'}). Usa l'opzione "Incolla testo" per importare il ticket: apri il link nel browser, seleziona tutto il testo della pagina (Ctrl+A), copialo (Ctrl+C) e incollalo nell'apposito campo.`,
       });
     }
 
@@ -867,7 +917,7 @@ router.post('/import-url', auth, async (req, res) => {
       user: req.user._id,
       ticketId: parsed.ticketId,
       concessionario,
-      ocrRawText: html.substring(0, 50000), // Conserva HTML per reparse
+      ocrRawText: html.substring(0, 50000),
       bets: parsed.bets,
       stake: parsed.stake,
       potentialWin: parsed.potentialWin,
@@ -887,6 +937,72 @@ router.post('/import-url', auth, async (req, res) => {
       return res.status(400).json({
         message: 'Questo ticket è già stato caricato.',
       });
+    }
+    res.status(500).json({ message: 'Errore durante l\'importazione.', error: err.message });
+  }
+});
+
+// Import ticket da testo incollato (alternativa quando il link non funziona)
+router.post('/import-text', auth, async (req, res) => {
+  try {
+    const { text, sourceUrl } = req.body;
+    if (!text || text.trim().length < 20) {
+      return res.status(400).json({ message: 'Incolla il testo completo del ticket.' });
+    }
+
+    // Verifica che sia italiano
+    if (!isItalianTicket(text)) {
+      return res.status(400).json({
+        message: 'Il testo non sembra provenire da un concessionario italiano con licenza ADM.',
+      });
+    }
+
+    const ticketId = extractTicketId(text) || (sourceUrl && sourceUrl.match(/\/ticket\/([A-Z0-9]+)/i)?.[1]?.toUpperCase());
+
+    // Controlla duplicati
+    if (ticketId) {
+      const existing = await Ticket.findOne({ ticketId });
+      if (existing) {
+        return res.status(400).json({
+          message: `Questo ticket è già stato caricato (ID: ${ticketId}).`,
+        });
+      }
+    }
+
+    const concessionario = detectConcessionario(text) || (sourceUrl ? detectConcessionario(sourceUrl) : '');
+    const bets = parseBets(text);
+
+    let stake = extractAmount(text, 'importo\\s*(?:pagato|giocato|scommesso)');
+    if (!stake) stake = extractAmount(text, 'totale\\s*importo\\s*scommesso');
+    if (!stake) stake = extractAmount(text, 'puntata');
+    if (!stake) stake = extractAmount(text, 'importo');
+    let potentialWin = extractAmount(text, 'vincita\\s*potenziale');
+    if (!potentialWin) potentialWin = extractAmount(text, 'vincita');
+    const totalOdds = extractOdds(text);
+    const playedAt = extractPlayedAt(text);
+
+    const ticket = new Ticket({
+      user: req.user._id,
+      ticketId,
+      concessionario,
+      ocrRawText: text,
+      bets,
+      stake,
+      potentialWin,
+      totalOdds,
+      playedAt,
+    });
+
+    await ticket.save();
+
+    res.status(201).json({
+      message: 'Ticket importato dal testo con successo!',
+      ticket,
+    });
+  } catch (err) {
+    console.error('Errore import testo:', err);
+    if (err.code === 11000) {
+      return res.status(400).json({ message: 'Questo ticket è già stato caricato.' });
     }
     res.status(500).json({ message: 'Errore durante l\'importazione.', error: err.message });
   }

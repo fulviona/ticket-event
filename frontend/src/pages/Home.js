@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket, reparseTicket, importTicketUrl } from '../services/api';
+import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket, reparseTicket, importTicketUrl, importTicketText } from '../services/api';
 
 function Home({ user }) {
   const [tickets, setTickets] = useState([]);
@@ -12,6 +12,9 @@ function Home({ user }) {
   const [error, setError] = useState('');
   const [ticketUrl, setTicketUrl] = useState('');
   const [importingUrl, setImportingUrl] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [importingText, setImportingText] = useState(false);
+  const [showPasteArea, setShowPasteArea] = useState(false);
   const fileRef = useRef();
 
   useEffect(() => {
@@ -79,9 +82,33 @@ function Home({ user }) {
       setTicketUrl('');
       loadTickets();
     } catch (err) {
-      setError(err.response?.data?.message || 'Errore durante l\'importazione dal link.');
+      const msg = err.response?.data?.message || 'Errore durante l\'importazione dal link.';
+      setError(msg);
+      // Se il fetch è bloccato, mostra l'area per incollare il testo
+      if (msg.includes('Incolla testo') || msg.includes('blocca')) {
+        setShowPasteArea(true);
+      }
     } finally {
       setImportingUrl(false);
+    }
+  };
+
+  const handleImportText = async () => {
+    if (!pasteText.trim()) return;
+    setImportingText(true);
+    setError('');
+    setMessage('');
+    try {
+      await importTicketText(pasteText.trim(), ticketUrl.trim() || undefined);
+      setMessage('Ticket importato dal testo con successo!');
+      setPasteText('');
+      setShowPasteArea(false);
+      setTicketUrl('');
+      loadTickets();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Errore durante l\'importazione dal testo.');
+    } finally {
+      setImportingText(false);
     }
   };
 
@@ -350,6 +377,39 @@ function Home({ user }) {
               {importingUrl ? 'Importo...' : 'Importa'}
             </button>
           </div>
+
+          {showPasteArea && (
+            <div style={{ marginTop: '1rem', maxWidth: '500px', margin: '1rem auto 0' }}>
+              <p style={{ color: '#ffb74d', marginBottom: '0.5rem', fontSize: '0.85rem' }}>
+                Il link non e' accessibile direttamente. Apri il link nel browser, copia tutto il testo della pagina e incollalo qui:
+              </p>
+              <textarea
+                placeholder="Incolla qui il testo copiato dalla pagina del ticket..."
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                rows={6}
+                style={{
+                  width: '100%',
+                  padding: '0.6rem 0.8rem',
+                  border: '1px solid #37474f',
+                  borderRadius: '4px',
+                  background: '#263238',
+                  color: '#e0e0e0',
+                  fontSize: '0.85rem',
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
+                }}
+              />
+              <button
+                className="btn-primary"
+                style={{ maxWidth: '200px', marginTop: '0.5rem', padding: '0.6rem 1rem' }}
+                onClick={handleImportText}
+                disabled={!pasteText.trim() || importingText}
+              >
+                {importingText ? 'Importo testo...' : 'Importa Testo'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
