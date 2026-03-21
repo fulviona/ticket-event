@@ -529,7 +529,7 @@ function preprocessPastedText(text) {
   }
 
   // Fase 2: Filtra righe di rumore (metadata, UI elements, testo sito)
-  const NOISE_RE = /^\s*(stato\s*:\s*\w+|giocata\s*$|venduto|stampa|carica\s*stampa|condividi\s*cashout|condividicashout|stampa\s*condividi\s*cashout|stampacondividicashout|condividi|cashout|importo\s*bonus|vincita\s*potenziale|giocata\s*del\s*:|login\s*registrati|casin[oò]\s*casin[oò]|sportium\s*[-–]|probabilit[aà]\s*di\s*vincita|il\s*gioco\s*[eè]\s*vietato|gioca\s*con\s*moderazione|cookie\s*(?:policy|manage)|carica\s*stampa)/i;
+  const NOISE_RE = /^\s*(sport|live|casin[oò]|casin[oò]\s*live|poker|altri\s*giochi|promozioni\s*\d*|stato\s*:\s*\w+|giocata\s*$|venduto|stampa|carica\s*stampa|condividi\s*cashout|condividicashout|stampa\s*condividi\s*cashout|stampacondividicashout|condividi|cashout|importo\s*bonus|vincita\s*potenziale|giocata\s*del\s*:|login\s*registrati|casin[oò]\s*casin[oò]|sportium\s*[-–]|probabilit[aà]\s*di\s*vincita|il\s*gioco\s*[eè]\s*vietato|gioca\s*con\s*moderazione|cookie\s*(?:policy|manage)|carica\s*stampa|informativa\s*premi|rifiuta\s*accetta|rifiutaaccetta|scopri\s*di\s*pi[uù])\s*$/i;
   const filtered = merged.filter((l) => {
     const t = l.trim();
     if (!t) return false;
@@ -859,7 +859,8 @@ async function parseSportiumHtml(html, url) {
     /Concessione\s*(?:ADM|AAMS).*?\n/gi,
     /Probabilit[aà]\s*di\s*vincita\s*Sport/gi,
     /LOGIN\s*REGISTRATI/gi,
-    /^\s*\d+\s*$/gm,  // righe con solo numeri (badge notifiche)
+    /Informativa\s*Premi.*?(?:Accetta|Rifiuta)\s*/gi,
+    /^\s*\d{2,}\s*$/gm,  // righe con solo numeri >= 2 cifre (badge notifiche), NON "1","2" (selezioni 1X2)
   ];
   for (const pat of junkPatterns) {
     text = text.replace(pat, '\n');
@@ -921,16 +922,49 @@ async function parseSportiumHtml(html, url) {
 
   // Parsa come testo strutturato usando il parser principale
   const parsedBets = parseBets(text);
+
+  // Post-processing: cerca selezioni mancanti nell'HTML originale
+  // Sportium a volte rende la selezione (1, 2) come bottone/elemento visivo
+  // che non appare nel testo estratto
   if (parsedBets.length > 0) {
+    for (const bet of parsedBets) {
+      if (!bet.selection && bet.odds && bet.match && bet.match !== 'Scommessa') {
+        // Cerca nell'HTML: pattern tipo "selection_name">1</span> o "active">1<" vicino al match
+        const matchEscaped = bet.match.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+vs\s+/i, '[\\s\\S]{0,200}');
+        // Cerca la selezione numerica (1, 2) o X vicino al match e alla quota nell'HTML
+        const oddsStr = bet.odds.toFixed(2).replace('.', '[.,]');
+        // Pattern: match ... selezione ... quota (nell'HTML grezzo)
+        const selPatterns = [
+          new RegExp(matchEscaped + '[\\s\\S]{0,500}?[>"\']\\s*([1X2])\\s*[<"\'][\\s\\S]{0,200}?' + oddsStr, 'i'),
+          new RegExp(matchEscaped + '[\\s\\S]{0,500}?selected[\\s\\S]{0,100}?>\\s*([1X2])\\s*<', 'i'),
+          new RegExp(matchEscaped + '[\\s\\S]{0,500}?active[\\s\\S]{0,100}?>\\s*([1X2])\\s*<', 'i'),
+        ];
+        for (const pat of selPatterns) {
+          const m = cleanHtml.match(pat);
+          if (m) {
+            bet.selection = m[1].toUpperCase();
+            console.log(`[parseSportiumHtml] Selezione "${bet.selection}" estratta da HTML per ${bet.match}`);
+            break;
+          }
+        }
+      }
+    }
+
+    // Filtra bet spazzatura: rimuovi bet senza match reale (voci nav del sito)
+    const validBets = parsedBets.filter(b =>
+      b.match && b.match !== 'Scommessa' && b.odds && b.odds > 1
+    );
+    const finalBets = validBets.length > 0 ? validBets : parsedBets;
+
     // Calcola totalOdds/potentialWin se non estratti dall'HTML
-    if (!totalOdds && parsedBets.length > 0) {
-      const computedOdds = parsedBets.reduce((acc, b) => b.odds ? acc * b.odds : acc, 1);
+    if (!totalOdds && finalBets.length > 0) {
+      const computedOdds = finalBets.reduce((acc, b) => b.odds ? acc * b.odds : acc, 1);
       if (computedOdds > 1) totalOdds = Math.round(computedOdds * 100) / 100;
     }
     if (!potentialWin && stake && totalOdds) {
       potentialWin = Math.round(stake * totalOdds * 100) / 100;
     }
-    return { bets: parsedBets, stake, potentialWin, totalOdds, ticketId, playedAt };
+    return { bets: finalBets, stake, potentialWin, totalOdds, ticketId, playedAt };
   }
 
   return { bets: [{ match: 'Ticket da link', prediction: 'Da verificare manualmente', betType: 'N/D', eventDate: new Date() }], stake, potentialWin, totalOdds, ticketId, playedAt };
