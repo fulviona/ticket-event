@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const { execSync } = require('child_process');
 const Tesseract = require('tesseract.js');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
@@ -806,7 +807,28 @@ async function parseSportiumHtml(html, url) {
   return { bets: [{ match: 'Ticket da link', prediction: 'Da verificare manualmente', betType: 'N/D', eventDate: new Date() }], stake, potentialWin, totalOdds, ticketId, playedAt };
 }
 
-// Funzione per aprire URL con Puppeteer (browser headless reale)
+// Fetch con curl (TLS fingerprint diverso da Node.js, bypassa molti WAF)
+function fetchWithCurl(url) {
+  try {
+    const html = execSync(
+      `curl -s -L --max-time 20 --compressed \
+        -H "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1" \
+        -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
+        -H "Accept-Language: it-IT,it;q=0.9" \
+        -H "Accept-Encoding: gzip, deflate, br" \
+        -H "Connection: keep-alive" \
+        "${url}"`,
+      { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
+    );
+    const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return { html, text };
+  } catch (e) {
+    console.error('[fetchWithCurl] Errore:', e.message);
+    return null;
+  }
+}
+
+// Fallback: Puppeteer (browser headless)
 async function fetchWithBrowser(url) {
   const browser = await puppeteer.launch({
     headless: 'new',
@@ -824,52 +846,27 @@ async function fetchWithBrowser(url) {
 
   try {
     const page = await browser.newPage();
-
-    // User-Agent realistico
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
     );
-
     await page.setViewport({ width: 1920, height: 1080 });
-    await page.setExtraHTTPHeaders({
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-      'Sec-Ch-Ua-Mobile': '?0',
-      'Sec-Ch-Ua-Platform': '"Windows"',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1',
-      'Upgrade-Insecure-Requests': '1',
-    });
-
-    // Rimuovi webdriver flag
     await page.evaluateOnNewDocument(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => false });
     });
 
-    // Naviga alla pagina
-    await page.goto(url, {
-      waitUntil: 'networkidle2',
-      timeout: 30000,
-    });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
-    // Aspetta che il contenuto della pagina sia caricato (SPA)
     try {
       await page.waitForFunction(
         () => document.body.innerText.length > 200,
         { timeout: 15000 }
       );
     } catch (e) {
-      // Se non trova contenuto sufficiente, aspetta ancora
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
 
     const html = await page.content();
     const text = await page.evaluate(() => document.body.innerText);
-
     return { html, text };
   } finally {
     await browser.close();
@@ -909,27 +906,35 @@ router.post('/import-url', auth, async (req, res) => {
     if (clientHtml && clientHtml.length > 100) {
       console.log(`[Import URL] Usando HTML fornito dal client (${clientHtml.length} caratteri)`);
       html = clientHtml;
-      // Estrai testo dal HTML
       text = clientHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
-      // Prova fetch lato server con Puppeteer
-      console.log(`[Import URL] Apertura con browser headless: ${url}`);
-      try {
-        const result = await fetchWithBrowser(url);
-        html = result.html;
-        text = result.text;
-      } catch (browserErr) {
-        console.error('Errore Puppeteer:', browserErr.message);
-        return res.status(500).json({
-          message: `Errore nell'apertura del link: ${browserErr.message}. Verifica che il link sia corretto e riprova.`,
-        });
+      // Strategia 1: curl (TLS fingerprint diverso, bypassa molti WAF)
+      console.log(`[Import URL] Tentativo con curl: ${url}`);
+      const curlResult = fetchWithCurl(url);
+      if (curlResult && curlResult.html && !curlResult.text.includes('Access Denied') && curlResult.text.length > 100) {
+        console.log(`[Import URL] curl OK, ${curlResult.text.length} caratteri`);
+        html = curlResult.html;
+        text = curlResult.text;
+      } else {
+        // Strategia 2: Puppeteer con stealth
+        console.log(`[Import URL] curl bloccato, provo Puppeteer headless...`);
+        try {
+          const result = await fetchWithBrowser(url);
+          html = result.html;
+          text = result.text;
+        } catch (browserErr) {
+          console.error('Errore Puppeteer:', browserErr.message);
+          return res.status(500).json({
+            message: `Errore nell'apertura del link: ${browserErr.message}. Verifica che il link sia corretto e riprova.`,
+          });
+        }
       }
 
-      // Se il contenuto è "Access Denied", chiedi al client di provare
+      // Se tutto è bloccato, chiedi fetch lato client
       if (text && text.includes('Access Denied')) {
-        console.log('[Import URL] Accesso negato dal server, richiedo fetch lato client');
+        console.log('[Import URL] Tutti i metodi bloccati, richiedo fetch lato client');
         return res.status(403).json({
-          message: 'Il sito ha bloccato la richiesta dal server. Riprovo dal tuo browser...',
+          message: 'Il sito ha bloccato la richiesta. Riprovo dal tuo browser...',
           needsClientFetch: true,
         });
       }

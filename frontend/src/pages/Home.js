@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket, reparseTicket, importTicketUrl } from '../services/api';
+import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket, reparseTicket, importTicketUrl, importTicketText } from '../services/api';
 
 function Home({ user }) {
   const [tickets, setTickets] = useState([]);
@@ -12,6 +12,8 @@ function Home({ user }) {
   const [error, setError] = useState('');
   const [ticketUrl, setTicketUrl] = useState('');
   const [importingUrl, setImportingUrl] = useState(false);
+  const [showPasteBox, setShowPasteBox] = useState(false);
+  const [pasteText, setPasteText] = useState('');
   const fileRef = useRef();
 
   useEffect(() => {
@@ -73,38 +75,42 @@ function Home({ user }) {
     setImportingUrl(true);
     setError('');
     setMessage('');
+    setShowPasteBox(false);
     try {
-      // Prima prova dal server
       await importTicketUrl(ticketUrl.trim());
       setMessage('Ticket importato dal link con successo!');
       setTicketUrl('');
       loadTickets();
     } catch (err) {
-      // Se il server riceve "Access Denied", prova fetch dal browser dell'utente
       if (err.response?.status === 403 && err.response?.data?.needsClientFetch) {
-        setMessage('Il sito ha bloccato il server, riprovo dal tuo browser...');
-        try {
-          // Fetch tramite proxy CORS dal browser dell'utente
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(ticketUrl.trim())}`;
-          const response = await fetch(proxyUrl);
-          const html = await response.text();
-          if (html && html.length > 100 && !html.includes('Access Denied')) {
-            await importTicketUrl(ticketUrl.trim(), html);
-            setMessage('Ticket importato dal link con successo!');
-            setTicketUrl('');
-            setError('');
-            loadTickets();
-          } else {
-            setError('Impossibile accedere al ticket. Prova a aprire il link nel browser, copiare tutto il testo della pagina e incollarlo qui sotto.');
-            setMessage('');
-          }
-        } catch (clientErr) {
-          setError('Impossibile accedere al ticket. Prova a aprire il link nel browser, copiare tutto il testo della pagina e incollarlo qui sotto.');
-          setMessage('');
-        }
+        // Il server non riesce ad accedere al sito, mostra il box per incollare
+        setShowPasteBox(true);
+        setError('Il sito blocca il server. Apri il link nel tuo browser, seleziona tutto (Ctrl+A), copia (Ctrl+C) e incolla qui sotto.');
       } else {
         setError(err.response?.data?.message || 'Errore durante l\'importazione dal link.');
       }
+    } finally {
+      setImportingUrl(false);
+    }
+  };
+
+  const handlePasteImport = async () => {
+    if (!pasteText.trim() || pasteText.trim().length < 20) {
+      setError('Incolla il testo completo della pagina del ticket.');
+      return;
+    }
+    setImportingUrl(true);
+    setError('');
+    setMessage('');
+    try {
+      await importTicketText(pasteText.trim(), ticketUrl.trim());
+      setMessage('Ticket importato con successo!');
+      setTicketUrl('');
+      setPasteText('');
+      setShowPasteBox(false);
+      loadTickets();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Errore durante l\'importazione.');
     } finally {
       setImportingUrl(false);
     }
@@ -375,6 +381,37 @@ function Home({ user }) {
               {importingUrl ? 'Importo...' : 'Importa'}
             </button>
           </div>
+          {showPasteBox && (
+            <div style={{ marginTop: '1rem' }}>
+              <p style={{ color: '#ffb74d', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                Apri il link nel tuo browser, seleziona tutto il testo della pagina (Ctrl+A / Cmd+A), copialo (Ctrl+C / Cmd+C) e incollalo qui:
+              </p>
+              <textarea
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                placeholder="Incolla qui il testo copiato dalla pagina del ticket..."
+                rows={6}
+                style={{
+                  width: '100%',
+                  background: '#1a2332',
+                  color: 'white',
+                  border: '1px solid #37474f',
+                  borderRadius: '8px',
+                  padding: '0.8rem',
+                  fontSize: '0.9rem',
+                  resize: 'vertical',
+                }}
+              />
+              <button
+                className="btn-primary"
+                style={{ marginTop: '0.5rem', padding: '0.6rem 1.5rem' }}
+                onClick={handlePasteImport}
+                disabled={!pasteText.trim() || importingUrl}
+              >
+                {importingUrl ? 'Importo...' : 'Importa testo'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
