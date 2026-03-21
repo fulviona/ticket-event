@@ -173,6 +173,56 @@ function getSettlementInfo(betType, prediction) {
   return SETTLEMENT_RULES[betType] || '';
 }
 
+// ===== Rilevamento concessionario italiano =====
+// Lista concessionari .it noti con licenza ADM
+const CONCESSIONARI_IT = [
+  { pattern: /sportium/i, name: 'Sportium.it', domain: 'sportium.it' },
+  { pattern: /eplay\s*24/i, name: 'Eplay24.it', domain: 'eplay24.it' },
+  { pattern: /betwin\s*360/i, name: 'Betwin360.it', domain: 'betwin360.it' },
+  { pattern: /goldbet/i, name: 'Goldbet.it', domain: 'goldbet.it' },
+  { pattern: /lottomatica|better\.it/i, name: 'Lottomatica.it', domain: 'lottomatica.it' },
+  { pattern: /snai/i, name: 'SNAI.it', domain: 'snai.it' },
+  { pattern: /sisal/i, name: 'Sisal.it', domain: 'sisal.it' },
+  { pattern: /eurobet/i, name: 'Eurobet.it', domain: 'eurobet.it' },
+  { pattern: /bet365/i, name: 'Bet365.it', domain: 'bet365.it' },
+  { pattern: /william\s*hill/i, name: 'WilliamHill.it', domain: 'williamhill.it' },
+  { pattern: /betflag/i, name: 'Betflag.it', domain: 'betflag.it' },
+  { pattern: /betway/i, name: 'Betway.it', domain: 'betway.it' },
+  { pattern: /888sport|888\.it/i, name: '888sport.it', domain: '888.it' },
+  { pattern: /starcasino|star\s*casino/i, name: 'StarCasino.it', domain: 'starcasino.it' },
+  { pattern: /bwin/i, name: 'Bwin.it', domain: 'bwin.it' },
+  { pattern: /netbet/i, name: 'Netbet.it', domain: 'netbet.it' },
+  { pattern: /leovegas/i, name: 'LeoVegas.it', domain: 'leovegas.it' },
+  { pattern: /unibet/i, name: 'Unibet.it', domain: 'unibet.it' },
+  { pattern: /vincitu|fivebet/i, name: 'Vincitu.it', domain: 'vincitu.it' },
+  { pattern: /fantasyteam/i, name: 'FantasyTeam.it', domain: 'fantasyteam.it' },
+  { pattern: /planetwin\s*365/i, name: 'Planetwin365.it', domain: 'planetwin365.it' },
+  { pattern: /admiral\s*bet/i, name: 'AdmiralBet.it', domain: 'admiralbet.it' },
+  { pattern: /stanleybet/i, name: 'Stanleybet.it', domain: 'stanleybet.it' },
+];
+
+function detectConcessionario(text) {
+  for (const c of CONCESSIONARI_IT) {
+    if (c.pattern.test(text)) {
+      return c.name;
+    }
+  }
+  return '';
+}
+
+// Verifica se il ticket è italiano: deve avere codice ADM/AAMS o concessionario .it riconosciuto
+function isItalianTicket(text) {
+  // Ha un codice AAMS/ADM?
+  if (/\b(AAMS|ADM)\b/i.test(text)) return true;
+  // Ha un concessionario .it riconosciuto?
+  if (detectConcessionario(text)) return true;
+  // Ha riferimenti italiani (concessione ADM, quota fissa, etc.)?
+  if (/concessionar|quota\s*fissa|punto\s*vendita|ricevuta\s*di\s*partecipazione/i.test(text)) return true;
+  // Ha un dominio .it nel testo?
+  if (/\b\w+\.it\b/i.test(text)) return true;
+  return false;
+}
+
 // ===== Estrazione codice AAMS/ADM =====
 function extractTicketId(text) {
   const patterns = [
@@ -534,6 +584,17 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
       bets = [{ match: 'Scommessa caricata', prediction: 'Da verificare manualmente', betType: 'N/D', eventDate: new Date() }];
     }
 
+    // Verifica che sia un ticket italiano (.it / ADM)
+    if (text !== 'OCR non disponibile' && !isItalianTicket(text)) {
+      return res.status(400).json({
+        message: 'Questo ticket non sembra provenire da un concessionario italiano con licenza ADM. Sono accettati solo ticket di siti .it autorizzati.',
+      });
+    }
+
+    // Rileva concessionario
+    const concessionario = detectConcessionario(text);
+    console.log('Concessionario rilevato:', concessionario || '(non riconosciuto)');
+
     // Rifiuta ticket già chiusi/persi
     if (isTicketClosed(text)) {
       return res.status(400).json({
@@ -571,6 +632,7 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
     const ticket = new Ticket({
       user: req.user._id,
       ticketId,
+      concessionario,
       ocrRawText: text,
       bets,
       stake,

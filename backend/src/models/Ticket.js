@@ -39,6 +39,10 @@ const ticketSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  concessionario: {
+    type: String,
+    default: '',
+  },
   ocrRawText: {
     type: String,
   },

@@ -6,6 +6,7 @@ function Bacheca() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [loadingTickets, setLoadingTickets] = useState(false);
+  const [searchAlias, setSearchAlias] = useState('');
 
   useEffect(() => {
     loadUsers();
@@ -47,13 +48,31 @@ function Bacheca() {
         </p>
       </div>
 
+      <div style={{ marginBottom: '1rem' }}>
+        <input
+          type="text"
+          placeholder="Cerca player per alias..."
+          value={searchAlias}
+          onChange={(e) => setSearchAlias(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '0.7rem 1rem',
+            border: '1px solid #37474f',
+            borderRadius: '8px',
+            background: '#1a2530',
+            color: '#e0e0e0',
+            fontSize: '0.9rem',
+          }}
+        />
+      </div>
+
       <div className="bacheca-users-list">
         {users.length === 0 && (
           <p style={{ color: '#78909c', textAlign: 'center', padding: '2rem' }}>
             Nessun player ha ancora condiviso ticket.
           </p>
         )}
-        {users.map((u) => (
+        {users.filter((u) => !searchAlias || u.alias?.toLowerCase().includes(searchAlias.toLowerCase())).map((u) => (
           <div
             key={u.userId}
             className={`bacheca-user-card ${selectedUser?.userId === u.userId ? 'active' : ''}`}

@@ -131,6 +131,11 @@ function Home({ user }) {
                 ID: {ticket.ticketId.substring(0, 12)}...
               </span>
             )}
+            {ticket.concessionario && (
+              <span style={{ marginLeft: '0.5rem', color: '#80cbc4', fontSize: '0.75rem' }}>
+                {ticket.concessionario}
+              </span>
+            )}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             {!showUser && (
