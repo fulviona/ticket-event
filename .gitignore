@@ -4,3 +4,4 @@ uploads/
 frontend/build/
 *.log
 .DS_Store
+.cache/
