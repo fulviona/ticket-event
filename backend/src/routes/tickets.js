@@ -24,25 +24,31 @@ const upload = multer({
 const BET_TYPES = [
   // Cartellino giocatore (deve essere prima di Marcatore perché può contenere "sostituto")
   { pattern: /\bcartellino\b/i, type: 'Cartellino' },
+  { pattern: /\bammonit[oa]\b/i, type: 'Cartellino' },
   { pattern: /\bammonizion[ei]\b/i, type: 'Cartellino' },
+  { pattern: /\bespuls[oa]\b/i, type: 'Cartellino' },
   { pattern: /\bespulsion[ei]\b/i, type: 'Cartellino' },
-  // Marcatore / Gol giocatore
+  // Marcatore / Gol giocatore (combinati: segna o colpisce, segna o fa assist)
   { pattern: /\bsegna\s+o\s+(colpisce|fa\s+assist)/i, type: 'Marcatore' },
-  { pattern: /\bsegna\b(?!.*palo)/i, type: 'Marcatore' },
+  { pattern: /\bsegna\b/i, type: 'Marcatore' },
   { pattern: /\bmarcatore\b/i, type: 'Marcatore' },
+  { pattern: /\bmarc\.\b/i, type: 'Marcatore' },
   { pattern: /\bgoleador\b/i, type: 'Marcatore' },
   { pattern: /\bprimo\s*gol\b/i, type: 'Marcatore' },
   { pattern: /\bultimo\s*gol\b/i, type: 'Marcatore' },
   { pattern: /\banytime\b/i, type: 'Marcatore' },
+  { pattern: /\bdoppietta\b/i, type: 'Marcatore' },
   // Palo/Traversa
   { pattern: /\bpalo[\s/]*traversa\b/i, type: 'Palo/Traversa' },
   // Assist
   { pattern: /\bfa\s+assist\b/i, type: 'Assist' },
+  { pattern: /\bassist\b/i, type: 'Assist' },
   // Tiri in porta / Tiri totali
   { pattern: /\btiri?\s*(in\s*porta|totali|fuori)\b/i, type: 'Tiri' },
   { pattern: /\bshots?\s*on\s*target\b/i, type: 'Tiri' },
   // Under/Over con soglia
   { pattern: /\b(under|over)\s*[\d.,]+/i, type: 'Under/Over' },
+  { pattern: /\bu[\s/]*o\s*[\d.,]+/i, type: 'Under/Over' },
   // Goal/No Goal
   { pattern: /\b(goal|no\s*goal|gol|no\s*gol)\b/i, type: 'Goal/No Goal' },
   { pattern: /\b(gg|ng)\b/, type: 'Goal/No Goal' },
@@ -51,25 +57,30 @@ const BET_TYPES = [
   { pattern: /\b1\s*x\s*2\b/i, type: '1X2' },
   // Doppia Chance
   { pattern: /\bdoppia\s*chance\b/i, type: 'Doppia Chance' },
+  { pattern: /\bdc\s*(1t|2t|in|out)\b/i, type: 'Doppia Chance' },
   // Draw No Bet
   { pattern: /\b(draw\s*no\s*bet|dnb)\b/i, type: 'Draw No Bet' },
   // Handicap
   { pattern: /\bhandicap\b/i, type: 'Handicap' },
   { pattern: /\bhcap\b/i, type: 'Handicap' },
+  { pattern: /\bh\.\s*[12x]/i, type: 'Handicap' },
+  { pattern: /\bah\s*[12]/i, type: 'Handicap' },
   // Risultato esatto
-  { pattern: /\b(risultato\s*esatto|ris\.?\s*esatto)\b/i, type: 'Risultato Esatto' },
+  { pattern: /\b(risultato\s*esatto|ris\.?\s*es(?:atto)?)\b/i, type: 'Risultato Esatto' },
   // Parziale/Finale
   { pattern: /\bparziale[\s/]*finale\b/i, type: 'Parziale/Finale' },
   { pattern: /\b1t[\s/]*2t\b/i, type: 'Parziale/Finale' },
   { pattern: /\bprimo\s*tempo\b/i, type: 'Primo Tempo' },
   { pattern: /\bsecondo\s*tempo\b/i, type: 'Secondo Tempo' },
   // Combo
-  { pattern: /\b[12x]\s*(?:over|under)\b/i, type: 'Combo 1X2+U/O' },
+  { pattern: /\b[12x]\s*[+-]?\s*(?:over|under)\b/i, type: 'Combo 1X2+U/O' },
+  { pattern: /\b[12x]\s*[-+]\s*(?:goal|gol)\b/i, type: 'Combo 1X2+GG/NG' },
   // Somma Goal / Multigol
-  { pattern: /\b(somma|totale)\s*gol\b/i, type: 'Somma Goal' },
-  { pattern: /\bmulti\s*gol\b/i, type: 'Multigol' },
+  { pattern: /\b(somma|totale)\s*gol/i, type: 'Somma Goal' },
+  { pattern: /\bmulti\s*gol/i, type: 'Multigol' },
   // Pari/Dispari
   { pattern: /\bpari[\s/]*dispari\b/i, type: 'Pari/Dispari' },
+  { pattern: /\bp[\s/]*d\s*(cart|corner|1t|2t)\b/i, type: 'Pari/Dispari' },
   // Corner
   { pattern: /\b(corner|angoli|calci\s*d.angolo)\b/i, type: 'Corner' },
   // Supplementari
@@ -77,13 +88,19 @@ const BET_TYPES = [
   // Possesso palla
   { pattern: /\bpossesso\b/i, type: 'Possesso' },
   // Falli
-  { pattern: /\bfalli?\b/i, type: 'Falli' },
+  { pattern: /\bfalli?\s*(commess|subit)/i, type: 'Falli' },
   // Rigore
   { pattern: /\brigore\b/i, type: 'Rigore' },
   // Fuorigioco
   { pattern: /\bfuorigioco\b/i, type: 'Fuorigioco' },
   // Rimessa laterale
   { pattern: /\brimessa\b/i, type: 'Rimessa' },
+  // Ribaltone
+  { pattern: /\bribaltone\b/i, type: 'Ribaltone' },
+  // Autorete
+  { pattern: /\bautorete\b/i, type: 'Autorete' },
+  // Squadra primo gol
+  { pattern: /\bsquadra\s*(1|primo|1°)\s*gol/i, type: 'Squadra Primo Gol' },
 ];
 
 function detectBetType(text) {
@@ -98,7 +115,9 @@ function extractTicketId(text) {
   const patterns = [
     /AAMS[:\s]*([A-Z0-9]{10,})/i,
     /ADM[:\s]*([A-Z0-9]{10,})/i,
+    /codice\s*biglietto[:\s]*([A-Z0-9._-]{10,})/i,
     /codice[:\s]*([A-Z0-9]{10,})/i,
+    /\bIB[-]([A-Z0-9]{2,4}[.][A-Z0-9]{4}[.][A-Z0-9]{4})/i,
     /\b([A-F0-9]{16,})\b/i,
   ];
   for (const p of patterns) {
@@ -110,10 +129,16 @@ function extractTicketId(text) {
 
 // ===== Estrazione importi =====
 function extractAmount(text, label) {
-  const pattern = new RegExp(label + '[:\\s]*([\\d.,]+)\\s*(?:€|eur)?', 'i');
-  const m = text.match(pattern);
-  if (m) {
-    return parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+  // Cerca sia "label: 50,00 €" che "label: EUR 50,00" che "label: 50.00"
+  const patterns = [
+    new RegExp(label + '[:\\s]*(?:EUR\\s*)?([\\d.,]+)\\s*(?:€|eur)?', 'i'),
+    new RegExp(label + '[:\\s]*€?\\s*([\\d.,]+)', 'i'),
+  ];
+  for (const pattern of patterns) {
+    const m = text.match(pattern);
+    if (m) {
+      return parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+    }
   }
   return null;
 }
@@ -242,8 +267,10 @@ function isBetDescriptionLine(line) {
   if (/^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}/.test(line)) return false;
   // Non è una riga di match
   if (parseMatchLine(line)) return false;
-  // Non è una riga di riepilogo (quota totale, importo, vincita, giocata del, AAMS)
-  if (/^(quota|importo|vincita|giocata\s*del|aams|adm|codice)/i.test(line.trim())) return false;
+  // Non è una riga di riepilogo o metadati ticket
+  if (/^(quota|importo|vincita|giocata\s*del|aams|adm|codice|data[:\s]|ora[:\s]|bonus|ib[-]|cc[-]|nc[-]|pv[-]|pal[:\s]|avv[:\s]|singola|multipla|sistema|totale\s*importo|importo\s*scommesso)/i.test(line.trim())) return false;
+  // Non è un barcode o codice operatore
+  if (/^[A-Z]{2,3}[-]\d/i.test(line.trim())) return false;
   // Non è troppo corta (probabilmente rumore OCR)
   if (line.trim().length < 5) return false;
   // Deve contenere lettere (non solo numeri/simboli)
@@ -347,7 +374,9 @@ const CLOSED_STATUSES = [
   'perdente',
   'persa',
   'rimborsata',
+  'rimborsabile',
   'annullata',
+  'annullato',
   'void',
 ];
 
@@ -403,7 +432,9 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
     }
 
     // Estrai importi, quota e data giocata
-    const stake = extractAmount(text, 'importo\\s*(?:pagato|giocato|scommesso)');
+    let stake = extractAmount(text, 'importo\\s*(?:pagato|giocato|scommesso)');
+    if (!stake) stake = extractAmount(text, 'totale\\s*importo\\s*scommesso');
+    if (!stake) stake = extractAmount(text, 'importo');
     // Cerca prima "vincita potenziale", poi "vincita" generica
     let potentialWin = extractAmount(text, 'vincita\\s*potenziale');
     if (!potentialWin) {
