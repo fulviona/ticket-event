@@ -2,6 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { execSync } = require('child_process');
+const https = require('https');
+const http = require('http');
 const Tesseract = require('tesseract.js');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
@@ -909,7 +911,87 @@ function fetchWithCurl(url) {
   return null;
 }
 
-// Fallback: Puppeteer (browser headless) con stealth avanzato
+// Strategia 2: Fetch tramite servizi proxy esterni (IP diversi, non bloccati da Akamai)
+async function fetchViaProxy(url) {
+  const encodedUrl = encodeURIComponent(url);
+
+  // Lista di servizi proxy/CORS gratuiti con IP non datacenter
+  const proxyServices = [
+    {
+      name: 'allorigins',
+      buildUrl: () => `https://api.allorigins.win/raw?url=${encodedUrl}`,
+      extractHtml: (data) => data,
+    },
+    {
+      name: 'corsproxy',
+      buildUrl: () => `https://corsproxy.io/?url=${encodedUrl}`,
+      extractHtml: (data) => data,
+    },
+    {
+      name: 'codetabs',
+      buildUrl: () => `https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`,
+      extractHtml: (data) => data,
+    },
+  ];
+
+  for (const proxy of proxyServices) {
+    try {
+      console.log(`[fetchViaProxy] Provo ${proxy.name}...`);
+      const proxyUrl = proxy.buildUrl();
+
+      const html = await new Promise((resolve, reject) => {
+        const timeoutMs = 20000;
+        const timer = setTimeout(() => reject(new Error('Timeout')), timeoutMs);
+        const protocol = proxyUrl.startsWith('https') ? https : http;
+
+        const req = protocol.get(proxyUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'it-IT,it;q=0.9',
+          },
+        }, (res) => {
+          if (res.statusCode !== 200) {
+            clearTimeout(timer);
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            clearTimeout(timer);
+            resolve(data);
+          });
+          res.on('error', (err) => {
+            clearTimeout(timer);
+            reject(err);
+          });
+        });
+        req.on('error', (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+      });
+
+      const extractedHtml = proxy.extractHtml(html);
+      const text = extractedHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+      const blockPatterns = ['Access Denied', '403 Forbidden', 'Cloudflare', 'Just a moment', 'Bot detected', 'captcha', 'errors.edgesuite.net'];
+      const isBlocked = text.length < 100 || blockPatterns.some(p => text.includes(p));
+
+      if (!isBlocked) {
+        console.log(`[fetchViaProxy] ${proxy.name} OK! ${text.length} char`);
+        return { html: extractedHtml, text };
+      }
+      console.log(`[fetchViaProxy] ${proxy.name} bloccato (${text.length} char), provo il prossimo...`);
+    } catch (e) {
+      console.log(`[fetchViaProxy] ${proxy.name} errore: ${e.message}`);
+    }
+  }
+  return null;
+}
+
+// Strategia 3: Puppeteer (browser headless) con stealth avanzato
 async function fetchWithBrowser(url) {
   const browser = await puppeteer.launch({
     headless: 'new',
@@ -1110,25 +1192,37 @@ router.post('/import-url', auth, async (req, res) => {
       html = clientHtml;
       text = clientHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
-      // Strategia 1: curl (TLS fingerprint diverso, bypassa molti WAF)
-      console.log(`[Import URL] Tentativo con curl: ${url}`);
+      // Strategia 1: curl diretto (TLS fingerprint diverso, bypassa molti WAF)
+      console.log(`[Import URL] Strategia 1 - curl diretto: ${url}`);
       const curlResult = fetchWithCurl(url);
       if (curlResult && curlResult.html && !curlResult.text.includes('Access Denied') && curlResult.text.length > 100) {
         console.log(`[Import URL] curl OK, ${curlResult.text.length} caratteri`);
         html = curlResult.html;
         text = curlResult.text;
-      } else {
-        // Strategia 2: Puppeteer con stealth
-        console.log(`[Import URL] curl bloccato, provo Puppeteer headless...`);
+      }
+
+      // Strategia 2: Proxy esterni (IP diversi da Render, non bloccati da Akamai)
+      if (!text || text.length < 100) {
+        console.log(`[Import URL] Strategia 2 - proxy esterni...`);
+        const proxyResult = await fetchViaProxy(url);
+        if (proxyResult && proxyResult.text.length > 100) {
+          console.log(`[Import URL] Proxy OK, ${proxyResult.text.length} caratteri`);
+          html = proxyResult.html;
+          text = proxyResult.text;
+        }
+      }
+
+      // Strategia 3: Puppeteer con stealth (browser headless)
+      if (!text || text.length < 100) {
+        console.log(`[Import URL] Strategia 3 - Puppeteer headless...`);
         try {
           const result = await fetchWithBrowser(url);
-          html = result.html;
-          text = result.text;
+          if (result && result.text && result.text.length > 100) {
+            html = result.html;
+            text = result.text;
+          }
         } catch (browserErr) {
           console.error('Errore Puppeteer:', browserErr.message);
-          return res.status(500).json({
-            message: `Errore nell'apertura del link: ${browserErr.message}. Verifica che il link sia corretto e riprova.`,
-          });
         }
       }
 
