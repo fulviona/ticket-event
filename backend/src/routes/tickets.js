@@ -818,37 +818,55 @@ async function fetchWithBrowser(url) {
       '--single-process',
       '--no-zygote',
       '--window-size=1920,1080',
+      '--disable-blink-features=AutomationControlled',
     ],
   });
 
   try {
     const page = await browser.newPage();
 
-    // Simula un browser reale
+    // User-Agent realistico
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+    );
+
     await page.setViewport({ width: 1920, height: 1080 });
     await page.setExtraHTTPHeaders({
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"Windows"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
     });
 
-    // Naviga alla pagina e aspetta che il contenuto si carichi
+    // Rimuovi webdriver flag
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    });
+
+    // Naviga alla pagina
     await page.goto(url, {
       waitUntil: 'networkidle2',
       timeout: 30000,
     });
 
     // Aspetta che il contenuto della pagina sia caricato (SPA)
-    // Prova ad aspettare un elemento tipico del ticket
     try {
       await page.waitForFunction(
         () => document.body.innerText.length > 200,
-        { timeout: 10000 }
+        { timeout: 15000 }
       );
     } catch (e) {
-      // Se non trova contenuto sufficiente, aspetta ancora un po'
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Se non trova contenuto sufficiente, aspetta ancora
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
 
-    // Estrai sia l'HTML che il testo visibile
     const html = await page.content();
     const text = await page.evaluate(() => document.body.innerText);
 
