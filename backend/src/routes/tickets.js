@@ -924,32 +924,54 @@ async function fetchWithBrowser(url) {
       '--disable-blink-features=AutomationControlled',
       '--disable-features=IsolateOrigins,site-per-process',
       '--lang=it-IT,it',
+      '--enable-features=NetworkService,NetworkServiceInProcess',
     ],
   });
 
   try {
     const page = await browser.newPage();
 
-    // Simula dispositivo mobile (più probabile per link condivisi da Sportium)
+    // Abilita JavaScript, DOM Storage e Cookie (fondamentale per Cloudflare)
+    await page.setJavaScriptEnabled(true);
+    const client = await page.target().createCDPSession();
+    await client.send('Network.enable');
+    await client.send('Network.setCacheDisabled', { cacheDisabled: false });
+    // Abilita DOM Storage esplicitamente via CDP
+    await client.send('DOMStorage.enable');
+
+    // Simula dispositivo mobile reale (link condivisi Sportium sono mobile)
     await page.setUserAgent(
       'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
     );
-    await page.setViewport({ width: 412, height: 915, isMobile: true, hasTouch: true });
+    await page.setViewport({ width: 412, height: 915, isMobile: true, hasTouch: true, deviceScaleFactor: 2.625 });
     await page.setExtraHTTPHeaders({
-      'Accept-Language': 'it-IT,it;q=0.9',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1',
+      'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
     });
 
-    // Anti-detection avanzato
+    // Anti-detection avanzato — nasconde ogni traccia di automazione
     await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      // Nasconde webdriver
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      // Lingua e piattaforma realistiche
       Object.defineProperty(navigator, 'languages', { get: () => ['it-IT', 'it', 'en-US', 'en'] });
       Object.defineProperty(navigator, 'platform', { get: () => 'Linux armv81' });
-      // Chrome runtime
-      window.chrome = { runtime: {}, loadTimes: () => ({}), csi: () => ({}) };
+      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+      Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+      Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5 });
+      // Chrome runtime (necessario per passare i check)
+      window.chrome = {
+        runtime: { onConnect: {}, onMessage: {}, sendMessage: () => {} },
+        loadTimes: () => ({ commitLoadTime: Date.now() / 1000 }),
+        csi: () => ({ startE: Date.now(), onloadT: Date.now() }),
+      };
+      // Plugin finti (un browser vero ne ha sempre)
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+          { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
+        ],
+      });
       // Permissions
       const originalQuery = window.navigator.permissions?.query;
       if (originalQuery) {
@@ -958,41 +980,95 @@ async function fetchWithBrowser(url) {
             ? Promise.resolve({ state: Notification.permission })
             : originalQuery(params);
       }
+      // WebGL vendor spoofing
+      const getParameter = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = function(param) {
+        if (param === 37445) return 'Google Inc. (Qualcomm)';
+        if (param === 37446) return 'ANGLE (Qualcomm, Adreno (TM) 750, OpenGL ES 3.2)';
+        return getParameter.call(this, param);
+      };
     });
 
-    // Naviga con timeout generoso
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 40000 });
+    // 1. Prima navigazione — potrebbe finire sulla challenge Cloudflare
+    console.log('[fetchWithBrowser] Navigazione iniziale...');
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // Aspetta che il contenuto del ticket sia caricato (SPA potrebbe caricare via JS)
+    // 2. Controlla se siamo su una challenge Cloudflare e aspetta che si risolva
+    const maxWaitCF = 30000; // max 30 secondi per la challenge
+    const startCF = Date.now();
+    let passedChallenge = false;
+
+    while (Date.now() - startCF < maxWaitCF) {
+      const pageText = await page.evaluate(() => document.body?.innerText || '');
+      const pageTitle = await page.evaluate(() => document.title || '');
+
+      const isChallenging = pageText.includes('Just a moment') ||
+        pageText.includes('Checking your browser') ||
+        pageText.includes('Verifica del browser') ||
+        pageText.includes('Attention Required') ||
+        pageText.includes('Please Wait') ||
+        pageTitle.includes('Just a moment') ||
+        pageText.length < 100;
+
+      if (!isChallenging) {
+        console.log(`[fetchWithBrowser] Challenge Cloudflare superata in ${Date.now() - startCF}ms`);
+        passedChallenge = true;
+        break;
+      }
+
+      console.log(`[fetchWithBrowser] Challenge Cloudflare in corso... (${Math.round((Date.now() - startCF) / 1000)}s)`);
+      // Attendi un po' tra i check — ritardo randomizzato per sembrare umano
+      await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1000));
+    }
+
+    if (!passedChallenge) {
+      console.log('[fetchWithBrowser] Challenge Cloudflare NON superata dopo 30s');
+    }
+
+    // 3. Aspetta che la rete si stabilizzi dopo la challenge
+    try {
+      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 });
+    } catch (e) {
+      // Potrebbe non esserci una navigazione aggiuntiva, va bene
+    }
+
+    // 4. Aspetta il contenuto del ticket (SPA: il contenuto potrebbe caricarsi via JS)
     try {
       await page.waitForFunction(
         () => {
           const text = document.body.innerText;
-          // Cerca indicatori che il ticket è caricato
-          return text.length > 200 && (
-            /vs\b/i.test(text) ||
+          return text.length > 300 && (
+            /\bvs\.?\b/i.test(text) ||
             /quota/i.test(text) ||
-            /scommessa/i.test(text) ||
+            /scommess/i.test(text) ||
             /importo/i.test(text) ||
-            /AAMS/i.test(text)
+            /AAMS/i.test(text) ||
+            /vincita/i.test(text) ||
+            /giocata/i.test(text)
           );
         },
-        { timeout: 20000 }
+        { timeout: 15000 }
       );
+      console.log('[fetchWithBrowser] Contenuto ticket rilevato!');
     } catch (e) {
-      // Se il waitFor fallisce, aspetta ancora un po' e prova comunque
-      console.log('[fetchWithBrowser] waitForFunction timeout, attendo 5s extra...');
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      console.log('[fetchWithBrowser] Timeout attesa contenuto ticket, provo comunque...');
+      // Attesa extra con scroll per lazy loading
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
-    // Scrolla per caricare eventuali lazy content
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // 5. Scrolla per triggerare lazy content
+    await page.evaluate(async () => {
+      window.scrollTo(0, document.body.scrollHeight / 2);
+      await new Promise(r => setTimeout(r, 500));
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
     const html = await page.content();
     const text = await page.evaluate(() => document.body.innerText);
 
     console.log(`[fetchWithBrowser] Pagina caricata, ${text.length} char di testo`);
+    console.log(`[fetchWithBrowser] Primi 300 char: ${text.substring(0, 300)}`);
     return { html, text };
   } finally {
     await browser.close();
