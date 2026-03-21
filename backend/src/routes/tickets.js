@@ -4,6 +4,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const https = require('https');
 const http = require('http');
+const initCycleTLS = require('cycletls');
 const Tesseract = require('tesseract.js');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
@@ -850,7 +851,104 @@ async function parseSportiumHtml(html, url) {
   return { bets: [{ match: 'Ticket da link', prediction: 'Da verificare manualmente', betType: 'N/D', eventDate: new Date() }], stake, potentialWin, totalOdds, ticketId, playedAt };
 }
 
-// Fetch con curl (TLS fingerprint diverso da Node.js, bypassa molti WAF)
+// Strategia 1: CycleTLS — simula il TLS fingerprint (JA3) di Chrome reale
+// Questo bypassa Akamai che blocca basandosi sul JA3 di Node.js/curl
+async function fetchWithCycleTLS(url) {
+  let cycleTLS;
+  try {
+    cycleTLS = await initCycleTLS();
+
+    // JA3 di Chrome 134 + HTTP/2 fingerprint Akamai-like
+    const chromeJa3 = '771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,51-27-65281-18-45-0-35-5-11-43-16-65037-23-17613-13-10,4588-29-23-24,0';
+    const chromeHttp2 = '1:65536;2:0;3:1000;4:6291456;6:262144|15663105|0|m,a,s,p';
+    const chromeUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+    // Profili da provare (Chrome desktop, Chrome mobile, Safari)
+    const profiles = [
+      {
+        name: 'Chrome Desktop',
+        ja3: chromeJa3,
+        http2Fingerprint: chromeHttp2,
+        userAgent: chromeUA,
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'sec-ch-ua': '"Chromium";v="131", "Not_A Brand";v="24"',
+          'sec-ch-ua-mobile': '?0',
+          'sec-ch-ua-platform': '"Windows"',
+          'Cache-Control': 'max-age=0',
+        },
+      },
+      {
+        name: 'Chrome Mobile',
+        ja3: chromeJa3,
+        http2Fingerprint: chromeHttp2,
+        userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'it-IT,it;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'sec-ch-ua-mobile': '?1',
+          'sec-ch-ua-platform': '"Android"',
+        },
+      },
+    ];
+
+    for (const profile of profiles) {
+      try {
+        console.log(`[fetchWithCycleTLS] Provo ${profile.name}...`);
+        const response = await cycleTLS(url, {
+          body: '',
+          ja3: profile.ja3,
+          http2Fingerprint: profile.http2Fingerprint,
+          userAgent: profile.userAgent,
+          headers: profile.headers,
+          timeout: 25,
+          disableRedirect: false,
+        }, 'get');
+
+        if (response.status === 200) {
+          const htmlBody = typeof response.body === 'string' ? response.body : JSON.stringify(response.body);
+          const text = htmlBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+          const blockPatterns = ['Access Denied', '403 Forbidden', 'Just a moment', 'Bot detected', 'captcha', 'errors.edgesuite.net'];
+          const isBlocked = text.length < 100 || blockPatterns.some(p => text.includes(p));
+
+          if (!isBlocked) {
+            console.log(`[fetchWithCycleTLS] ${profile.name} OK! ${text.length} char`);
+            return { html: htmlBody, text };
+          }
+          console.log(`[fetchWithCycleTLS] ${profile.name} risposta 200 ma bloccato (${text.substring(0, 100)})`);
+        } else {
+          console.log(`[fetchWithCycleTLS] ${profile.name} HTTP ${response.status}`);
+        }
+      } catch (profileErr) {
+        console.log(`[fetchWithCycleTLS] ${profile.name} errore: ${profileErr.message?.substring(0, 100)}`);
+      }
+    }
+    return null;
+  } catch (e) {
+    console.error('[fetchWithCycleTLS] Errore init:', e.message);
+    return null;
+  } finally {
+    if (cycleTLS) {
+      try { await cycleTLS.exit(); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+// Strategia 2: Fetch con curl (fallback, TLS fingerprint diverso da Node.js)
 function fetchWithCurl(url) {
   // Prova più profili User-Agent per aggirare blocchi
   const profiles = [
@@ -1192,18 +1290,30 @@ router.post('/import-url', auth, async (req, res) => {
       html = clientHtml;
       text = clientHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
-      // Strategia 1: curl diretto (TLS fingerprint diverso, bypassa molti WAF)
-      console.log(`[Import URL] Strategia 1 - curl diretto: ${url}`);
-      const curlResult = fetchWithCurl(url);
-      if (curlResult && curlResult.html && !curlResult.text.includes('Access Denied') && curlResult.text.length > 100) {
-        console.log(`[Import URL] curl OK, ${curlResult.text.length} caratteri`);
-        html = curlResult.html;
-        text = curlResult.text;
+      // Strategia 1: CycleTLS — simula TLS fingerprint (JA3) di Chrome reale
+      // Questa è la strategia più efficace contro Akamai che blocca basandosi su JA3
+      console.log(`[Import URL] Strategia 1 - CycleTLS (JA3 Chrome): ${url}`);
+      const cycleTLSResult = await fetchWithCycleTLS(url);
+      if (cycleTLSResult && cycleTLSResult.text.length > 100) {
+        console.log(`[Import URL] CycleTLS OK! ${cycleTLSResult.text.length} caratteri`);
+        html = cycleTLSResult.html;
+        text = cycleTLSResult.text;
       }
 
-      // Strategia 2: Proxy esterni (IP diversi da Render, non bloccati da Akamai)
+      // Strategia 2: curl diretto (TLS fingerprint diverso, per siti non-Akamai)
       if (!text || text.length < 100) {
-        console.log(`[Import URL] Strategia 2 - proxy esterni...`);
+        console.log(`[Import URL] Strategia 2 - curl diretto...`);
+        const curlResult = fetchWithCurl(url);
+        if (curlResult && curlResult.html && !curlResult.text.includes('Access Denied') && curlResult.text.length > 100) {
+          console.log(`[Import URL] curl OK, ${curlResult.text.length} caratteri`);
+          html = curlResult.html;
+          text = curlResult.text;
+        }
+      }
+
+      // Strategia 3: Proxy esterni (IP diversi da Render)
+      if (!text || text.length < 100) {
+        console.log(`[Import URL] Strategia 3 - proxy esterni...`);
         const proxyResult = await fetchViaProxy(url);
         if (proxyResult && proxyResult.text.length > 100) {
           console.log(`[Import URL] Proxy OK, ${proxyResult.text.length} caratteri`);
@@ -1212,9 +1322,9 @@ router.post('/import-url', auth, async (req, res) => {
         }
       }
 
-      // Strategia 3: Puppeteer con stealth (browser headless)
+      // Strategia 4: Puppeteer con stealth (browser headless)
       if (!text || text.length < 100) {
-        console.log(`[Import URL] Strategia 3 - Puppeteer headless...`);
+        console.log(`[Import URL] Strategia 4 - Puppeteer headless...`);
         try {
           const result = await fetchWithBrowser(url);
           if (result && result.text && result.text.length > 100) {
