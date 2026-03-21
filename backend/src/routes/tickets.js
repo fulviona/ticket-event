@@ -834,6 +834,14 @@ async function parseSportiumHtml(html, url) {
   // Parsa come testo strutturato usando il parser principale
   const parsedBets = parseBets(text);
   if (parsedBets.length > 0) {
+    // Calcola totalOdds/potentialWin se non estratti dall'HTML
+    if (!totalOdds && parsedBets.length > 0) {
+      const computedOdds = parsedBets.reduce((acc, b) => b.odds ? acc * b.odds : acc, 1);
+      if (computedOdds > 1) totalOdds = Math.round(computedOdds * 100) / 100;
+    }
+    if (!potentialWin && stake && totalOdds) {
+      potentialWin = Math.round(stake * totalOdds * 100) / 100;
+    }
     return { bets: parsedBets, stake, potentialWin, totalOdds, ticketId, playedAt };
   }
 
@@ -842,26 +850,66 @@ async function parseSportiumHtml(html, url) {
 
 // Fetch con curl (TLS fingerprint diverso da Node.js, bypassa molti WAF)
 function fetchWithCurl(url) {
-  try {
-    const html = execSync(
-      `curl -s -L --max-time 20 --compressed \
-        -H "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1" \
-        -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
-        -H "Accept-Language: it-IT,it;q=0.9" \
+  // Prova più profili User-Agent per aggirare blocchi
+  const profiles = [
+    {
+      ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1',
+      secFetch: false,
+    },
+    {
+      ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+      secFetch: true,
+    },
+    {
+      ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      secFetch: true,
+    },
+  ];
+
+  for (const profile of profiles) {
+    try {
+      // Costruisci headers dinamici
+      const domain = url.match(/https?:\/\/([^/]+)/i)?.[1] || '';
+      let headers = `\
+        -H "User-Agent: ${profile.ua}" \
+        -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8" \
+        -H "Accept-Language: it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7" \
         -H "Accept-Encoding: gzip, deflate, br" \
         -H "Connection: keep-alive" \
-        "${url}"`,
-      { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
-    );
-    const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    return { html, text };
-  } catch (e) {
-    console.error('[fetchWithCurl] Errore:', e.message);
-    return null;
+        -H "Upgrade-Insecure-Requests: 1" \
+        -H "Cache-Control: max-age=0" \
+        -H "Referer: https://${domain}/"`;
+
+      if (profile.secFetch) {
+        headers += ` \
+        -H "Sec-Fetch-Dest: document" \
+        -H "Sec-Fetch-Mode: navigate" \
+        -H "Sec-Fetch-Site: same-origin" \
+        -H "Sec-Fetch-User: ?1" \
+        -H "sec-ch-ua: \\"Chromium\\";v=\\"131\\", \\"Not_A Brand\\";v=\\"24\\"" \
+        -H "sec-ch-ua-mobile: ?0" \
+        -H "sec-ch-ua-platform: \\"Windows\\""`;
+      }
+
+      const html = execSync(
+        `curl -s -L --max-time 25 --compressed -b "" -c /dev/null ${headers} "${url}"`,
+        { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
+      );
+      const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+      if (text.length > 100 && !text.includes('Access Denied') && !text.includes('403 Forbidden') && !text.includes('Cloudflare')) {
+        console.log(`[fetchWithCurl] OK con profilo ${profile.ua.substring(0, 30)}..., ${text.length} char`);
+        return { html, text };
+      }
+      console.log(`[fetchWithCurl] Profilo bloccato, provo il prossimo...`);
+    } catch (e) {
+      console.error('[fetchWithCurl] Errore profilo:', e.message?.substring(0, 100));
+    }
   }
+  return null;
 }
 
-// Fallback: Puppeteer (browser headless)
+// Fallback: Puppeteer (browser headless) con stealth avanzato
 async function fetchWithBrowser(url) {
   const browser = await puppeteer.launch({
     headless: 'new',
@@ -872,34 +920,79 @@ async function fetchWithBrowser(url) {
       '--disable-gpu',
       '--single-process',
       '--no-zygote',
-      '--window-size=1920,1080',
+      '--window-size=412,915',
       '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--lang=it-IT,it',
     ],
   });
 
   try {
     const page = await browser.newPage();
+
+    // Simula dispositivo mobile (più probabile per link condivisi da Sportium)
     await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
     );
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    await page.setViewport({ width: 412, height: 915, isMobile: true, hasTouch: true });
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'it-IT,it;q=0.9',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
     });
 
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    // Anti-detection avanzato
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      Object.defineProperty(navigator, 'languages', { get: () => ['it-IT', 'it', 'en-US', 'en'] });
+      Object.defineProperty(navigator, 'platform', { get: () => 'Linux armv81' });
+      // Chrome runtime
+      window.chrome = { runtime: {}, loadTimes: () => ({}), csi: () => ({}) };
+      // Permissions
+      const originalQuery = window.navigator.permissions?.query;
+      if (originalQuery) {
+        window.navigator.permissions.query = (params) =>
+          params.name === 'notifications'
+            ? Promise.resolve({ state: Notification.permission })
+            : originalQuery(params);
+      }
+    });
 
+    // Naviga con timeout generoso
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 40000 });
+
+    // Aspetta che il contenuto del ticket sia caricato (SPA potrebbe caricare via JS)
     try {
       await page.waitForFunction(
-        () => document.body.innerText.length > 200,
-        { timeout: 15000 }
+        () => {
+          const text = document.body.innerText;
+          // Cerca indicatori che il ticket è caricato
+          return text.length > 200 && (
+            /vs\b/i.test(text) ||
+            /quota/i.test(text) ||
+            /scommessa/i.test(text) ||
+            /importo/i.test(text) ||
+            /AAMS/i.test(text)
+          );
+        },
+        { timeout: 20000 }
       );
     } catch (e) {
+      // Se il waitFor fallisce, aspetta ancora un po' e prova comunque
+      console.log('[fetchWithBrowser] waitForFunction timeout, attendo 5s extra...');
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
 
+    // Scrolla per caricare eventuali lazy content
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     const html = await page.content();
     const text = await page.evaluate(() => document.body.innerText);
+
+    console.log(`[fetchWithBrowser] Pagina caricata, ${text.length} char di testo`);
     return { html, text };
   } finally {
     await browser.close();
@@ -963,11 +1056,13 @@ router.post('/import-url', auth, async (req, res) => {
         }
       }
 
-      // Se tutto è bloccato, chiedi fetch lato client
-      if (text && text.includes('Access Denied')) {
+      // Se tutto è bloccato (controlla vari messaggi di blocco)
+      const blockPatterns = ['Access Denied', '403 Forbidden', 'Cloudflare', 'Just a moment', 'Checking your browser', 'Attention Required', 'Please Wait', 'Bot detected', 'captcha'];
+      const isBlocked = text && (text.length < 100 || blockPatterns.some(p => text.includes(p)));
+      if (isBlocked) {
         console.log('[Import URL] Tutti i metodi bloccati, richiedo fetch lato client');
         return res.status(403).json({
-          message: 'Il sito ha bloccato la richiesta. Riprovo dal tuo browser...',
+          message: 'Il sito ha bloccato la richiesta. Usa la funzione "Incolla testo" per importare manualmente.',
           needsClientFetch: true,
         });
       }
