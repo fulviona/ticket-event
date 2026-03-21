@@ -22,40 +22,68 @@ const upload = multer({
 
 // ===== Tipologie scommesse ADM/AAMS =====
 const BET_TYPES = [
-  // Esito finale
-  { pattern: /\b(1\s*x\s*2|esito\s*finale)\b/i, type: '1X2' },
+  // Cartellino giocatore (deve essere prima di Marcatore perché può contenere "sostituto")
+  { pattern: /\bcartellino\b/i, type: 'Cartellino' },
+  { pattern: /\bammonizion[ei]\b/i, type: 'Cartellino' },
+  { pattern: /\bespulsion[ei]\b/i, type: 'Cartellino' },
+  // Marcatore / Gol giocatore
+  { pattern: /\bsegna\s+o\s+(colpisce|fa\s+assist)/i, type: 'Marcatore' },
+  { pattern: /\bsegna\b(?!.*palo)/i, type: 'Marcatore' },
+  { pattern: /\bmarcatore\b/i, type: 'Marcatore' },
+  { pattern: /\bgoleador\b/i, type: 'Marcatore' },
+  { pattern: /\bprimo\s*gol\b/i, type: 'Marcatore' },
+  { pattern: /\bultimo\s*gol\b/i, type: 'Marcatore' },
+  { pattern: /\banytime\b/i, type: 'Marcatore' },
+  // Palo/Traversa
+  { pattern: /\bpalo[\s/]*traversa\b/i, type: 'Palo/Traversa' },
+  // Assist
+  { pattern: /\bfa\s+assist\b/i, type: 'Assist' },
+  // Tiri in porta / Tiri totali
+  { pattern: /\btiri?\s*(in\s*porta|totali|fuori)\b/i, type: 'Tiri' },
+  { pattern: /\bshots?\s*on\s*target\b/i, type: 'Tiri' },
   // Under/Over con soglia
   { pattern: /\b(under|over)\s*[\d.,]+/i, type: 'Under/Over' },
   // Goal/No Goal
-  { pattern: /\b(goal|no\s*goal|gol|no\s*gol|gg|ng)\b/i, type: 'Goal/No Goal' },
+  { pattern: /\b(goal|no\s*goal|gol|no\s*gol)\b/i, type: 'Goal/No Goal' },
+  { pattern: /\b(gg|ng)\b/, type: 'Goal/No Goal' },
+  // Esito finale 1X2
+  { pattern: /\besito\s*finale\b/i, type: '1X2' },
+  { pattern: /\b1\s*x\s*2\b/i, type: '1X2' },
   // Doppia Chance
-  { pattern: /\b(doppia\s*chance|1x|x2|12)\b/i, type: 'Doppia Chance' },
+  { pattern: /\bdoppia\s*chance\b/i, type: 'Doppia Chance' },
   // Draw No Bet
   { pattern: /\b(draw\s*no\s*bet|dnb)\b/i, type: 'Draw No Bet' },
-  // Marcatore (primo, ultimo, anytime)
-  { pattern: /\b(marcatore|segna|goleador|primo\s*gol|ultimo\s*gol|anytime)\b/i, type: 'Marcatore' },
   // Handicap
-  { pattern: /\b(handicap|hcap|hc)\s*[\d(+-]/i, type: 'Handicap' },
+  { pattern: /\bhandicap\b/i, type: 'Handicap' },
+  { pattern: /\bhcap\b/i, type: 'Handicap' },
   // Risultato esatto
   { pattern: /\b(risultato\s*esatto|ris\.?\s*esatto)\b/i, type: 'Risultato Esatto' },
   // Parziale/Finale
-  { pattern: /\b(parziale[\s/]*finale|1t[\s/]*2t|primo\s*tempo[\s/]*secondo\s*tempo)\b/i, type: 'Parziale/Finale' },
-  // Combo 1X2 + U/O
-  { pattern: /\b(1\s*(?:over|under)|x\s*(?:over|under)|2\s*(?:over|under))\b/i, type: 'Combo 1X2+U/O' },
-  // Somma Goal
-  { pattern: /\b(somma\s*gol|somma\s*goal|totale\s*gol)\b/i, type: 'Somma Goal' },
-  // Multigol
-  { pattern: /\b(multigol|multi\s*gol)\b/i, type: 'Multigol' },
+  { pattern: /\bparziale[\s/]*finale\b/i, type: 'Parziale/Finale' },
+  { pattern: /\b1t[\s/]*2t\b/i, type: 'Parziale/Finale' },
+  { pattern: /\bprimo\s*tempo\b/i, type: 'Primo Tempo' },
+  { pattern: /\bsecondo\s*tempo\b/i, type: 'Secondo Tempo' },
+  // Combo
+  { pattern: /\b[12x]\s*(?:over|under)\b/i, type: 'Combo 1X2+U/O' },
+  // Somma Goal / Multigol
+  { pattern: /\b(somma|totale)\s*gol\b/i, type: 'Somma Goal' },
+  { pattern: /\bmulti\s*gol\b/i, type: 'Multigol' },
   // Pari/Dispari
-  { pattern: /\b(pari[\s/]*dispari|odd[\s/]*even)\b/i, type: 'Pari/Dispari' },
-  // Calci d'angolo
-  { pattern: /\b(corner|angoli|calci\s*d'angolo)\b/i, type: 'Corner' },
-  // Cartellini
-  { pattern: /\b(cartellini|ammonizioni|espulsioni|cartellino)\b/i, type: 'Cartellini' },
-  // Tiri in porta
-  { pattern: /\b(tiri?\s*in\s*porta|shots?\s*on\s*target)\b/i, type: 'Tiri in Porta' },
+  { pattern: /\bpari[\s/]*dispari\b/i, type: 'Pari/Dispari' },
+  // Corner
+  { pattern: /\b(corner|angoli|calci\s*d.angolo)\b/i, type: 'Corner' },
   // Supplementari
   { pattern: /\b(supplementari|overtime|extra\s*time)\b/i, type: 'Supplementari' },
+  // Possesso palla
+  { pattern: /\bpossesso\b/i, type: 'Possesso' },
+  // Falli
+  { pattern: /\bfalli?\b/i, type: 'Falli' },
+  // Rigore
+  { pattern: /\brigore\b/i, type: 'Rigore' },
+  // Fuorigioco
+  { pattern: /\bfuorigioco\b/i, type: 'Fuorigioco' },
+  // Rimessa laterale
+  { pattern: /\brimessa\b/i, type: 'Rimessa' },
 ];
 
 function detectBetType(text) {
@@ -67,14 +95,11 @@ function detectBetType(text) {
 
 // ===== Estrazione codice AAMS/ADM =====
 function extractTicketId(text) {
-  // Pattern AAMS: codice alfanumerico tipico dei ticket ADM
-  // Es: "AAMS: DF07EA03112F39C1DB02" o "Codice: ABC123..." o sequenze hex lunghe
   const patterns = [
     /AAMS[:\s]*([A-Z0-9]{10,})/i,
     /ADM[:\s]*([A-Z0-9]{10,})/i,
     /codice[:\s]*([A-Z0-9]{10,})/i,
-    /ID[:\s]*([A-Z0-9]{10,})/i,
-    /\b([A-F0-9]{16,})\b/i, // sequenze hex lunghe tipiche dei ticket
+    /\b([A-F0-9]{16,})\b/i,
   ];
   for (const p of patterns) {
     const m = text.match(p);
@@ -85,17 +110,15 @@ function extractTicketId(text) {
 
 // ===== Estrazione importi =====
 function extractAmount(text, label) {
-  // Cerca "Importo pagato: 50,00 €" o "Vincita potenziale: 350,00 €"
   const pattern = new RegExp(label + '[:\\s]*([\\d.,]+)\\s*(?:€|eur)?', 'i');
   const m = text.match(pattern);
   if (m) {
-    return parseFloat(m[1].replace('.', '').replace(',', '.'));
+    return parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
   }
   return null;
 }
 
 function extractOdds(text) {
-  // Cerca "Quota totale: 7.00" o "Quota: 7,00"
   const pattern = /quota\s*(?:totale)?[:\s]*([\d.,]+)/i;
   const m = text.match(pattern);
   if (m) {
@@ -104,60 +127,211 @@ function extractOdds(text) {
   return null;
 }
 
-// ===== Parsing scommesse migliorato =====
+// ===== Estrazione data giocata =====
+function extractPlayedAt(text) {
+  // "Giocata del: 19/03/2026 20:57" o "Giocata del 19/03/2026 20:57"
+  const m = text.match(/giocata\s*del[:\s]*(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\s*(\d{1,2})[:.]\s*(\d{2})/i);
+  if (m) {
+    const [, day, month, year, hour, min] = m;
+    return new Date(year, month - 1, day, hour, min);
+  }
+  return null;
+}
+
+// ===== Classificazione righe OCR =====
+
+// Riga di intestazione evento: "19/03/2026 21:00 - Calcio - Europa League"
+function parseEventHeader(line) {
+  const m = line.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\s+(\d{1,2})[:.]\s*(\d{2})\s*[-–]\s*([A-Za-zÀ-ú\s]+?)\s*[-–]\s*(.+)$/i);
+  if (m) {
+    const [, day, month, year, hour, min, sport, competition] = m;
+    const fullYear = year.length === 2 ? '20' + year : year;
+    return {
+      eventDate: new Date(fullYear, month - 1, day, hour, min),
+      sport: sport.trim(),
+      competition: competition.trim(),
+    };
+  }
+  // Variante senza orario o con formato diverso
+  const m2 = line.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4}).*[-–]\s*([A-Za-zÀ-ú\s]+?)\s*[-–]\s*(.+)$/i);
+  if (m2) {
+    const [, day, month, year, sport, competition] = m2;
+    const fullYear = year.length === 2 ? '20' + year : year;
+    return {
+      eventDate: new Date(fullYear, month - 1, day),
+      sport: sport.trim(),
+      competition: competition.trim(),
+    };
+  }
+  return null;
+}
+
+// Riga di match: "Roma vs Bologna (3:3)" o "Aston Villa vs Lilla (2:0)"
+function parseMatchLine(line) {
+  // Pattern: Team1 vs Team2 con opzionale punteggio
+  const m = line.match(/^([A-Za-zÀ-ú0-9\s.'_-]{2,}?)\s+vs\.?\s+([A-Za-zÀ-ú0-9\s.'_-]{2,?})(?:\s*\((\d+[:.]\d+)\))?/i);
+  if (m) {
+    return {
+      match: `${m[1].trim()} vs ${m[2].trim()}`,
+      score: m[3] ? m[3].replace('.', ':') : '',
+    };
+  }
+  // Pattern con "-" o "–" come separatore (ma NON per date/header)
+  // Evita match con numeri puri all'inizio (date)
+  const m2 = line.match(/^([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']{1,}?)\s+[-–]\s+([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']{1,?})(?:\s*\((\d+[:.]\d+)\))?$/i);
+  if (m2 && !line.match(/^\d{1,2}[/.-]\d{1,2}/)) {
+    return {
+      match: `${m2[1].trim()} vs ${m2[2].trim()}`,
+      score: m2[3] ? m2[3].replace('.', ':') : '',
+    };
+  }
+  return null;
+}
+
+// Riga di scommessa: "CELIK, ZEKI (ROMA) O SUO SOSTITUTO CARTELLINO... SI 4.32"
+function parseBetLine(line) {
+  // Cerca quota alla fine della riga: numero decimale (es: 4.32, 2,05)
+  const oddsMatch = line.match(/\b(\d+[.,]\d{1,2})\s*$/);
+  const odds = oddsMatch ? parseFloat(oddsMatch[1].replace(',', '.')) : undefined;
+
+  // Cerca selezione SI/NO prima della quota
+  const selectionMatch = line.match(/\b(SI|NO|S[IÌ]|1|X|2)\s+\d+[.,]\d/i);
+  const selection = selectionMatch ? selectionMatch[1].toUpperCase().replace('SÌ', 'SI') : '';
+
+  // Rimuovi la quota e la selezione per ottenere la descrizione
+  let description = line;
+  if (oddsMatch) {
+    description = description.substring(0, description.lastIndexOf(oddsMatch[1])).trim();
+  }
+  if (selection) {
+    // Rimuovi solo l'ultima occorrenza di SI/NO prima della quota
+    const selIdx = description.lastIndexOf(selection);
+    if (selIdx > 0 && selIdx > description.length - selection.length - 5) {
+      description = description.substring(0, selIdx).trim();
+    }
+  }
+  // Rimuovi il separatore "|" residuo
+  description = description.replace(/\|\s*$/, '').trim();
+
+  // Estrai nome giocatore: "COGNOME, NOME (SQUADRA)" o "COGNOME NOME (SQUADRA):"
+  let player = '';
+  const playerMatch = description.match(/^([A-ZÀ-Ú][A-ZÀ-Ú\s,.']+?)\s*\([A-Za-zÀ-ú\s.]+\)/);
+  if (playerMatch) {
+    player = playerMatch[1].trim().replace(/,\s*$/, '');
+    // Formatta il nome: "CELIK, ZEKI" → "Celik, Zeki"
+    player = player.replace(/\b\w+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+  }
+
+  // Determina il tipo di scommessa dalla descrizione
+  const betType = detectBetType(description);
+
+  return {
+    prediction: description,
+    selection,
+    player,
+    betType,
+    odds,
+  };
+}
+
+// Determina se una riga è una riga di scommessa (non header, non match, non summary)
+function isBetDescriptionLine(line) {
+  // Non è una riga vuota
+  if (!line.trim()) return false;
+  // Non è una riga di intestazione evento (inizia con data)
+  if (/^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}/.test(line)) return false;
+  // Non è una riga di match
+  if (parseMatchLine(line)) return false;
+  // Non è una riga di riepilogo (quota totale, importo, vincita, giocata del, AAMS)
+  if (/^(quota|importo|vincita|giocata\s*del|aams|adm|codice)/i.test(line.trim())) return false;
+  // Non è troppo corta (probabilmente rumore OCR)
+  if (line.trim().length < 5) return false;
+  // Deve contenere lettere (non solo numeri/simboli)
+  if (!/[A-Za-zÀ-ú]{2,}/.test(line)) return false;
+  return true;
+}
+
+// ===== Parser principale scommesse =====
 function parseBets(text) {
   const lines = text.split('\n').filter((l) => l.trim());
   const bets = [];
 
+  // Stato corrente durante il parsing
+  let currentHeader = null; // { eventDate, sport, competition }
+  let currentMatch = null;  // { match, score }
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
-    // Cerca pattern partita: "Squadra A vs Squadra B" o "Squadra A - Squadra B"
-    const matchPattern = /([A-Za-zÀ-ú0-9\s.]+?)\s+(?:vs\.?|[-–]|contro)\s+([A-Za-zÀ-ú0-9\s.]+?)(?:\s*\(|$|\s+[-–])/i;
-    const matchResult = line.match(matchPattern);
+    // 1. Controlla se è una riga di intestazione evento
+    const header = parseEventHeader(line);
+    if (header) {
+      currentHeader = header;
+      continue;
+    }
 
-    if (matchResult) {
-      const matchName = `${matchResult[1].trim()} vs ${matchResult[2].trim()}`;
+    // 2. Controlla se è una riga di match
+    const matchInfo = parseMatchLine(line);
+    if (matchInfo) {
+      currentMatch = matchInfo;
+      continue;
+    }
 
-      // Cerca la previsione/selezione nelle righe vicine
-      let prediction = '';
-      let betType = detectBetType(line);
+    // 3. Controlla se è una riga di scommessa
+    if (isBetDescriptionLine(line)) {
+      const bet = parseBetLine(line);
 
-      // Controlla la riga successiva per dettaglio scommessa
-      if (i + 1 < lines.length) {
+      // Se non abbiamo ancora trovato un match, potrebbe essere una scommessa standalone
+      // Prova a cercare multi-riga: a volte la descrizione scommessa si estende su più righe
+      // Uniamo le righe consecutive che non sono header/match/summary
+      let fullLine = line;
+      while (i + 1 < lines.length) {
         const nextLine = lines[i + 1].trim();
-        if (betType === 'N/D') {
-          betType = detectBetType(nextLine);
-        }
-        // Se la riga successiva non è un'altra partita, è il dettaglio
-        if (!nextLine.match(/[A-Za-zÀ-ú]+\s+(?:vs|[-–]|contro)\s+/i)) {
-          prediction = nextLine;
+        // Se la riga successiva è una continuazione (nessuna quota alla fine della riga corrente,
+        // e la riga successiva non inizia con un pattern riconoscibile)
+        if (!bet.odds && isBetDescriptionLine(nextLine) && !parseEventHeader(nextLine) && !parseMatchLine(nextLine)) {
+          fullLine += ' ' + nextLine;
+          i++;
+        } else {
+          break;
         }
       }
 
-      if (!prediction) {
-        prediction = line.replace(matchResult[0], '').trim() || 'N/D';
-      }
-
-      // Cerca quota nella riga
-      const oddsMatch = line.match(/\b(\d+[.,]\d{2})\s*$/);
-      const odds = oddsMatch ? parseFloat(oddsMatch[1].replace(',', '.')) : undefined;
+      // Se abbiamo unito righe, ri-parsa
+      const finalBet = fullLine !== line ? parseBetLine(fullLine) : bet;
 
       bets.push({
-        match: matchName,
-        prediction,
-        betType,
-        odds,
-        eventDate: new Date(),
+        match: currentMatch ? currentMatch.match : 'Scommessa',
+        sport: currentHeader ? currentHeader.sport : '',
+        competition: currentHeader ? currentHeader.competition : '',
+        prediction: finalBet.prediction,
+        selection: finalBet.selection,
+        betType: finalBet.betType,
+        player: finalBet.player,
+        odds: finalBet.odds,
+        eventDate: currentHeader ? currentHeader.eventDate : new Date(),
+        score: currentMatch ? currentMatch.score : '',
       });
     }
   }
 
-  // Fallback se non trova partite con pattern standard
-  if (bets.length === 0 && lines.length > 0) {
+  // Fallback: se non trova nessuna scommessa strutturata
+  if (bets.length === 0) {
+    // Prova a trovare almeno il match con "vs"
+    const vsMatch = text.match(/([A-Za-zÀ-ú][A-Za-zÀ-ú\s.']+?)\s+vs\.?\s+([A-Za-zÀ-ú][A-Za-zÀ-ú\s.']+)/i);
+    const matchName = vsMatch ? `${vsMatch[1].trim()} vs ${vsMatch[2].trim()}` : 'Scommessa caricata';
+
+    // Cerca eventuali descrizioni significative
+    const meaningfulLines = lines.filter((l) => {
+      const t = l.trim();
+      return t.length > 10 &&
+        !/^\d{1,2}[/.-]/.test(t) &&
+        !/^(quota|importo|vincita|giocata|aams|adm)/i.test(t);
+    });
+
     bets.push({
-      match: lines[0].substring(0, 80),
-      prediction: lines[1] || 'N/D',
+      match: matchName,
+      prediction: meaningfulLines[0]?.trim() || 'Da verificare manualmente',
       betType: detectBetType(text),
       eventDate: new Date(),
     });
@@ -228,10 +402,15 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
       }
     }
 
-    // Estrai importi e quota
-    const stake = extractAmount(text, 'importo\\s*pagato');
-    const potentialWin = extractAmount(text, 'vincita\\s*potenziale');
+    // Estrai importi, quota e data giocata
+    const stake = extractAmount(text, 'importo\\s*(?:pagato|giocato|scommesso)');
+    // Cerca prima "vincita potenziale", poi "vincita" generica
+    let potentialWin = extractAmount(text, 'vincita\\s*potenziale');
+    if (!potentialWin) {
+      potentialWin = extractAmount(text, 'vincita');
+    }
     const totalOdds = extractOdds(text);
+    const playedAt = extractPlayedAt(text);
 
     const ticket = new Ticket({
       user: req.user._id,
@@ -241,6 +420,7 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
       stake,
       potentialWin,
       totalOdds,
+      playedAt,
     });
 
     await ticket.save();
