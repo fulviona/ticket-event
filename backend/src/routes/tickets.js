@@ -851,6 +851,88 @@ async function parseSportiumHtml(html, url) {
   return { bets: [{ match: 'Ticket da link', prediction: 'Da verificare manualmente', betType: 'N/D', eventDate: new Date() }], stake, potentialWin, totalOdds, ticketId, playedAt };
 }
 
+// Strategia 0: Scraping API con proxy residenziali (bypassa Akamai via IP residenziale)
+// Supporta ScraperAPI e Scrape.do — configurabili via env vars
+async function fetchWithScrapingService(url) {
+  const services = [];
+
+  // ScraperAPI: 5000 crediti gratis poi 1000/mese - https://www.scraperapi.com
+  const scraperApiKey = process.env.SCRAPER_API_KEY;
+  if (scraperApiKey) {
+    services.push({
+      name: 'ScraperAPI',
+      buildUrl: () => `https://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=it`,
+    });
+  }
+
+  // Scrape.do: free tier - https://scrape.do
+  const scrapeDoToken = process.env.SCRAPE_DO_TOKEN;
+  if (scrapeDoToken) {
+    services.push({
+      name: 'Scrape.do',
+      buildUrl: () => `https://api.scrape.do/?token=${scrapeDoToken}&url=${encodeURIComponent(url)}&render=true&super=true`,
+    });
+  }
+
+  if (services.length === 0) {
+    console.log('[fetchWithScrapingService] Nessuna API key configurata (SCRAPER_API_KEY o SCRAPE_DO_TOKEN)');
+    return null;
+  }
+
+  for (const service of services) {
+    try {
+      console.log(`[fetchWithScrapingService] Provo ${service.name}...`);
+      const serviceUrl = service.buildUrl();
+
+      const html = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Timeout 60s')), 60000);
+        const protocol = serviceUrl.startsWith('https') ? https : http;
+
+        const req = protocol.get(serviceUrl, {
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'it-IT,it;q=0.9',
+          },
+        }, (res) => {
+          if (res.statusCode !== 200) {
+            clearTimeout(timer);
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            clearTimeout(timer);
+            resolve(data);
+          });
+          res.on('error', (err) => {
+            clearTimeout(timer);
+            reject(err);
+          });
+        });
+        req.on('error', (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+      });
+
+      const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+      const blockPatterns = ['Access Denied', '403 Forbidden', 'Just a moment', 'Bot detected', 'captcha', 'errors.edgesuite.net'];
+      const isBlocked = text.length < 100 || blockPatterns.some(p => text.includes(p));
+
+      if (!isBlocked) {
+        console.log(`[fetchWithScrapingService] ${service.name} OK! ${text.length} char`);
+        return { html, text };
+      }
+      console.log(`[fetchWithScrapingService] ${service.name} bloccato (${text.length} char)`);
+    } catch (e) {
+      console.log(`[fetchWithScrapingService] ${service.name} errore: ${e.message}`);
+    }
+  }
+  return null;
+}
+
 // Strategia 1: CycleTLS — simula il TLS fingerprint (JA3) di Chrome reale
 // Questo bypassa Akamai che blocca basandosi sul JA3 di Node.js/curl
 async function fetchWithCycleTLS(url) {
@@ -1290,35 +1372,34 @@ router.post('/import-url', auth, async (req, res) => {
       html = clientHtml;
       text = clientHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
-      // Strategia 1: CycleTLS — simula TLS fingerprint (JA3) di Chrome reale
-      // Questa è la strategia più efficace contro Akamai che blocca basandosi su JA3
-      console.log(`[Import URL] Strategia 1 - CycleTLS (JA3 Chrome): ${url}`);
-      const cycleTLSResult = await fetchWithCycleTLS(url);
-      if (cycleTLSResult && cycleTLSResult.text.length > 100) {
-        console.log(`[Import URL] CycleTLS OK! ${cycleTLSResult.text.length} caratteri`);
-        html = cycleTLSResult.html;
-        text = cycleTLSResult.text;
+      // Strategia 1: Scraping API con proxy residenziali (la più efficace)
+      console.log(`[Import URL] Strategia 1 - Scraping API (proxy residenziali): ${url}`);
+      const scrapingResult = await fetchWithScrapingService(url);
+      if (scrapingResult && scrapingResult.text.length > 100) {
+        console.log(`[Import URL] Scraping API OK! ${scrapingResult.text.length} caratteri`);
+        html = scrapingResult.html;
+        text = scrapingResult.text;
       }
 
-      // Strategia 2: curl diretto (TLS fingerprint diverso, per siti non-Akamai)
+      // Strategia 2: CycleTLS — simula TLS fingerprint (JA3) di Chrome reale
       if (!text || text.length < 100) {
-        console.log(`[Import URL] Strategia 2 - curl diretto...`);
+        console.log(`[Import URL] Strategia 2 - CycleTLS (JA3 Chrome)...`);
+        const cycleTLSResult = await fetchWithCycleTLS(url);
+        if (cycleTLSResult && cycleTLSResult.text.length > 100) {
+          console.log(`[Import URL] CycleTLS OK! ${cycleTLSResult.text.length} caratteri`);
+          html = cycleTLSResult.html;
+          text = cycleTLSResult.text;
+        }
+      }
+
+      // Strategia 3: curl diretto (per siti senza protezione Akamai)
+      if (!text || text.length < 100) {
+        console.log(`[Import URL] Strategia 3 - curl diretto...`);
         const curlResult = fetchWithCurl(url);
         if (curlResult && curlResult.html && !curlResult.text.includes('Access Denied') && curlResult.text.length > 100) {
           console.log(`[Import URL] curl OK, ${curlResult.text.length} caratteri`);
           html = curlResult.html;
           text = curlResult.text;
-        }
-      }
-
-      // Strategia 3: Proxy esterni (IP diversi da Render)
-      if (!text || text.length < 100) {
-        console.log(`[Import URL] Strategia 3 - proxy esterni...`);
-        const proxyResult = await fetchViaProxy(url);
-        if (proxyResult && proxyResult.text.length > 100) {
-          console.log(`[Import URL] Proxy OK, ${proxyResult.text.length} caratteri`);
-          html = proxyResult.html;
-          text = proxyResult.text;
         }
       }
 
