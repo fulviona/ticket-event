@@ -64,6 +64,7 @@ function AdminTickets() {
       bets: ticket.bets.map((b) => ({
         match: b.match,
         prediction: b.prediction,
+        selection: b.selection || '',
         betType: b.betType || 'N/D',
         odds: b.odds || '',
         eventDate: b.eventDate ? new Date(b.eventDate).toISOString().split('T')[0] : '',
@@ -86,6 +87,7 @@ function AdminTickets() {
         bets: editForm.bets.map((b) => ({
           match: b.match,
           prediction: b.prediction,
+          selection: b.selection || '',
           betType: b.betType,
           odds: b.odds ? parseFloat(b.odds) : undefined,
           eventDate: b.eventDate || undefined,
@@ -247,6 +249,29 @@ function AdminTickets() {
                                 style={{ width: '100%', padding: '0.3rem', background: '#1a2530', border: '1px solid #37474f', color: '#e0e0e0', borderRadius: '3px' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              <div style={{ flex: 1 }}>
+                                <label style={{ color: '#78909c', fontSize: '0.75rem' }}>Scelta</label>
+                                <select value={bet.selection || ''} onChange={(e) => handleEditBet(i, 'selection', e.target.value)}
+                                  style={{ width: '100%', padding: '0.3rem', background: '#1a2530', border: '1px solid #37474f', color: '#e0e0e0', borderRadius: '3px' }}>
+                                  <option value="">--</option>
+                                  <option value="SI">SI</option>
+                                  <option value="NO">NO</option>
+                                  <option value="1">1</option>
+                                  <option value="X">X</option>
+                                  <option value="2">2</option>
+                                  <option value="1X">1X</option>
+                                  <option value="X2">X2</option>
+                                  <option value="12">12</option>
+                                  <option value="OVER">OVER</option>
+                                  <option value="UNDER">UNDER</option>
+                                  <option value="GOAL">GOAL</option>
+                                  <option value="NO GOAL">NO GOAL</option>
+                                  <option value="GG">GG</option>
+                                  <option value="NG">NG</option>
+                                  <option value="PARI">PARI</option>
+                                  <option value="DISPARI">DISPARI</option>
+                                </select>
+                              </div>
                               <div style={{ flex: 1 }}>
                                 <label style={{ color: '#78909c', fontSize: '0.75rem' }}>Quota</label>
                                 <input type="number" step="0.01" value={bet.odds} onChange={(e) => handleEditBet(i, 'odds', e.target.value)}

@@ -349,118 +349,82 @@ function parseMatchLine(line) {
 function parseBetLine(line) {
   // Normalizza separatori OCR: "|" "©" "®" → spazio, pulisci "[" "]" isolati (artefatti OCR)
   let normalized = line.replace(/[|@©®]/g, ' ').replace(/\s*[\[\]]\s*/g, ' ').replace(/\s+/g, ' ').trim();
-  // Fix OCR: "0VER" → "OVER", "UNDER" con typo, "S1" → "SI" (1 letto come I)
+  // Fix OCR: "0VER" → "OVER", "S1" → "SI"
   normalized = normalized.replace(/\b0VER\b/g, 'OVER').replace(/\bUNDER\b/gi, 'UNDER');
 
   let odds;
   let selection = '';
 
-  // Strategia: cerchiamo la quota (numero decimale tipicamente 1.xx-99.xx) e il testo immediatamente prima.
-  // La selezione è il blocco di testo che precede la quota e non fa parte della descrizione scommessa.
-
-  // Pattern selezioni possibili (ordine di priorità):
-  // Combo: "1X + OVER", "X2 + UNDER", "1 + OVER", "1X+OVER"
-  // Parziale: "1/1+OVER", "1/X+OVER", "X/2+UNDER", "1/1", "X/2"
-  // Semplici: "OVER", "UNDER", "SI", "NO", "SÌ", "GOAL", "NO GOAL", "GG", "NG", "PARI", "DISPARI"
-  // 1X2: "1", "X", "2", "1X", "X2", "12"
-
-  // Cerca: <selezione> <quota> alla fine della riga o seguita da testo post-quota (es. "FISCHIO FINALE")
-  const selectionPatterns = [
-    // Combo parziale+over: "1/1+OVER", "X/2+UNDER", etc.
-    /\b(\d\/[1X2]\s*\+\s*OVER)\s+(\d+[.,]\d{1,2})\b/i,
-    /\b(\d\/[1X2]\s*\+\s*UNDER)\s+(\d+[.,]\d{1,2})\b/i,
-    // Combo doppia chance+over: "1X + OVER", "X2 + OVER", "12 + OVER"
-    /\b([1X2]{2}\s*\+\s*OVER)\s+(\d+[.,]\d{1,2})\b/i,
-    /\b([1X2]{2}\s*\+\s*UNDER)\s+(\d+[.,]\d{1,2})\b/i,
-    // Combo 1X2+over: "1 + OVER", "2 + UNDER"
-    /\b([1X2]\s*\+\s*OVER)\s+(\d+[.,]\d{1,2})\b/i,
-    /\b([1X2]\s*\+\s*UNDER)\s+(\d+[.,]\d{1,2})\b/i,
-    // Parziale/finale semplice: "1/1", "1/X", "X/2"
-    /\b([1X2]\/[1X2])\s+(\d+[.,]\d{1,2})\b/i,
-    // Over/Under semplice
-    /\b(OVER)\s+(\d+[.,]\d{1,2})\b/i,
-    /\b(UNDER)\s+(\d+[.,]\d{1,2})\b/i,
-    // SI/NO
-    /\b(SI|S[IÌ])\s+(\d+[.,]\d{1,2})\b/i,
-    /\b(NO)\s+(\d+[.,]\d{1,2})\b/i,
-    // GOAL/NO GOAL
-    /\b(NO\s*GOAL)\s+(\d+[.,]\d{1,2})\b/i,
-    /\b(GOAL)\s+(\d+[.,]\d{1,2})\b/i,
-    /\b(GG|NG)\s+(\d+[.,]\d{1,2})\b/i,
-    // PARI/DISPARI
-    /\b(PARI|DISPARI)\s+(\d+[.,]\d{1,2})\b/i,
-    // 1X2 doppia chance: "1X", "X2", "12"
-    /\b(1X|X2|12)\s+(\d+[.,]\d{1,2})\b/i,
-    // 1X2 semplice: "1", "X", "2" (solo se seguiti da quota)
-    /\b([1X2])\s+(\d+[.,]\d{1,2})\s*$/i,
+  // Lista di tutte le selezioni valide (ordine: combo lunghe prima, semplici dopo)
+  const SELECTION_TOKENS = [
+    // Combo parziale+over/under
+    /\d\/[1X2]\s*\+\s*(?:OVER|UNDER)/i,
+    // Combo doppia chance+over/under
+    /[1X2]{2}\s*\+\s*(?:OVER|UNDER)/i,
+    // Combo singola+over/under
+    /[1X2]\s*\+\s*(?:OVER|UNDER)/i,
+    // Parziale/finale
+    /[1X2]\/[1X2]/i,
+    // NO GOAL (prima di GOAL e NO)
+    /NO\s*GOAL/i,
+    // Parole singole
+    /OVER/i, /UNDER/i, /GOAL/i, /GG/i, /NG/i,
+    /PARI/i, /DISPARI/i,
+    /SI/i, /S[IÌ]/i, /NO/i,
+    // Doppia chance
+    /1X/i, /X2/i, /12/i,
+    // 1X2 semplice (singolo carattere)
+    /[1X2]/i,
   ];
 
-  let matchedPattern = null;
-  for (const pat of selectionPatterns) {
-    const m = normalized.match(pat);
-    if (m) {
-      matchedPattern = m;
-      selection = m[1].toUpperCase().replace('SÌ', 'SI').replace(/\s+/g, ' ').trim();
-      odds = parseFloat(m[2].replace(',', '.'));
-      break;
-    }
-  }
+  // Costruisci un unico pattern: cerca <selezione> <quota> alla fine (con eventuale testo dopo la quota)
+  // Strategia: scansioniamo dalla fine della riga per trovare quota e selezione
 
-  // Fallback: quota alla fine senza selezione riconosciuta
-  if (!odds) {
-    const oddsEnd = normalized.match(/\b(\d+[.,]\d{1,2})\s*$/);
-    if (oddsEnd) {
-      odds = parseFloat(oddsEnd[1].replace(',', '.'));
-    }
-  }
+  // 1. Cerca la quota (ultimo numero decimale nella riga)
+  const oddsMatches = [...normalized.matchAll(/(\d+[.,]\d{1,2})/g)];
+  const lastOddsMatch = oddsMatches.length > 0 ? oddsMatches[oddsMatches.length - 1] : null;
 
-  // Rimuovi selezione+quota dalla descrizione
-  let description = normalized;
-  if (matchedPattern) {
-    const idx = description.indexOf(matchedPattern[0]);
-    if (idx >= 0) {
-      const before = description.substring(0, idx).trim();
-      const after = description.substring(idx + matchedPattern[0].length).trim();
-      // Conserva testo significativo dopo la quota (es. "FISCHIO FINALE")
-      if (after && /[A-Za-zÀ-ú]{3,}/.test(after)) {
-        description = before + ' ' + after;
-      } else {
-        description = before;
+  if (lastOddsMatch) {
+    const oddsValue = parseFloat(lastOddsMatch[1].replace(',', '.'));
+    const oddsIdx = lastOddsMatch.index;
+    const textBeforeOdds = normalized.substring(0, oddsIdx).trim();
+
+    // 2. Cerca la selezione subito prima della quota
+    for (const tokenRe of SELECTION_TOKENS) {
+      // Costruisci pattern che matcha il token alla fine del testo prima della quota
+      const fullRe = new RegExp('\\b(' + tokenRe.source + ')\\s*$', 'i');
+      const selMatch = textBeforeOdds.match(fullRe);
+      if (selMatch) {
+        selection = selMatch[1].toUpperCase().replace('SÌ', 'SI').replace(/\s+/g, ' ').trim();
+        odds = oddsValue;
+        break;
       }
     }
+
+    // Se non ha trovato selezione ma la quota è valida (>= 1.01), prendila comunque
+    if (!selection && oddsValue >= 1.01) {
+      odds = oddsValue;
+    }
+  }
+
+  // Rimuovi selezione e quota dalla descrizione
+  let description = normalized;
+  if (selection && odds) {
+    // Rimuovi da "SELEZIONE QUOTA" in poi (o fino alla fine)
+    const escSel = selection.replace(/[+]/g, '\\+').replace(/\//g, '\\/');
+    const removeRe = new RegExp('\\s*' + escSel + '\\s+\\d+[.,]\\d{1,2}.*$', 'i');
+    description = description.replace(removeRe, '').trim();
   } else if (odds) {
     // Rimuovi solo la quota alla fine
     description = description.replace(/\s*\d+[.,]\d{1,2}\s*$/, '').trim();
   }
 
-  // Pulizia residui
-  description = description.replace(/\s+/g, ' ').trim();
-
-  // Post-processing: se la selezione non è stata estratta ma il prediction contiene ancora
-  // un pattern di selezione noto alla fine, estrailo ora
+  // Post-processing: se la selezione non è stata estratta ma la descrizione finisce
+  // con un pattern di selezione noto, estrailo ora
   if (!selection && description) {
-    const postPatterns = [
-      // Combo parziale+over alla fine: "1/1+OVER", "X/2+UNDER"
-      /\s+(\d\/[1X2]\s*\+\s*(?:OVER|UNDER))\s*$/i,
-      // Combo doppia chance alla fine: "1X + OVER", "X2 + UNDER"
-      /\s+([1X2]{2}\s*\+\s*(?:OVER|UNDER))\s*$/i,
-      // Combo singola alla fine: "1 + OVER"
-      /\s+([1X2]\s*\+\s*(?:OVER|UNDER))\s*$/i,
-      // Parziale/finale alla fine: "1/1", "1/X", "X/2"
-      /\s+([1X2]\/[1X2])\s*$/i,
-      // Over/Under alla fine
-      /\s+(OVER|UNDER)\s*$/i,
-      // SI/NO alla fine
-      /\s+(SI|NO|S[IÌ])\s*$/i,
-      // GOAL/NO GOAL alla fine
-      /\s+(NO\s*GOAL|GOAL|GG|NG)\s*$/i,
-      // PARI/DISPARI alla fine
-      /\s+(PARI|DISPARI)\s*$/i,
-      // Doppia chance alla fine
-      /\s+(1X|X2|12)\s*$/i,
-    ];
-    for (const pp of postPatterns) {
-      const pm = description.match(pp);
+    for (const tokenRe of SELECTION_TOKENS) {
+      const postRe = new RegExp('\\s+(' + tokenRe.source + ')\\s*$', 'i');
+      const pm = description.match(postRe);
       if (pm) {
         selection = pm[1].toUpperCase().replace('SÌ', 'SI').replace(/\s+/g, ' ').trim();
         description = description.substring(0, pm.index).trim();
@@ -468,6 +432,9 @@ function parseBetLine(line) {
       }
     }
   }
+
+  // Pulizia residui
+  description = description.replace(/\s+/g, ' ').trim();
 
   // Estrai nome giocatore: "COGNOME, NOME (SQUADRA)" o "COGNOME NOME (SQUADRA):"
   let player = '';
@@ -575,28 +542,39 @@ function parseBets(text) {
       continue;
     }
 
-    // 3. Controlla se è una riga di scommessa
-    if (isBetDescriptionLine(line)) {
+    // Pattern selezioni valide (riutilizzato)
+    const SELECTION_RE = /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*(?:OVER|UNDER))?|\d\/[1X2](?:\s*\+\s*(?:OVER|UNDER))?)\s*$/i;
+    const SELECTION_ODDS_RE = /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*(?:OVER|UNDER))?|\d\/[1X2](?:\s*\+\s*(?:OVER|UNDER))?)\s*[|]?\s*(\d+[.,]\d{1,2})\s*$/i;
+    const ODDS_ONLY_RE = /^\s*(\d+[.,]\d{1,2})\s*$/;
+    const BET_LABEL_RE = /^\s*(cartellino|marcatore|risultato|ammonizione|espulsione|autogol|autorete|rigore|corner|tiri|assist|fallo|fuorigioco|parata|gol)\s*$/i;
+
+    // 3. Ordine di priorità per righe quando c'è una scommessa pendente:
+    //    a) Etichette Sportium (Cartellino, Marcatore) → ignora
+    //    b) Selezione + Quota (es: "SI 2.05", "SI | 4.32") → aggiungi al pending
+    //    c) Solo selezione (es: "SI") → aggiungi al pending
+    //    d) Solo quota (es: "2.05") → aggiungi al pending
+    //    e) Nuova scommessa → flush + push
+    //    f) Continuazione descrizione → push
+    //    g) Altro → flush
+
+    if (pendingBetLines.length > 0 && BET_LABEL_RE.test(line)) {
+      // Etichette tipo scommessa Sportium → ignora senza flush
+      continue;
+    } else if (pendingBetLines.length > 0 && SELECTION_ODDS_RE.test(line)) {
+      // Riga con selezione+quota (es: "SI 2.05", "SI | 4.32") → normalizza e aggiungi
+      pendingBetLines.push(line.replace(/[|]/g, ' '));
+    } else if (pendingBetLines.length > 0 && SELECTION_RE.test(line)) {
+      // Riga con solo selezione (es: "SI", "OVER") → aggiungi
+      pendingBetLines.push(line);
+    } else if (pendingBetLines.length > 0 && ODDS_ONLY_RE.test(line)) {
+      // Riga con solo quota (es: "2.05") → aggiungi
+      pendingBetLines.push(line);
+    } else if (isBetDescriptionLine(line)) {
       // Se questa riga inizia una nuova scommessa, flush la precedente
       if (startsNewBet(line)) {
         flushPendingBet();
       }
       pendingBetLines.push(line);
-    } else if (pendingBetLines.length > 0 && /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?|\d\/[1X2](?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?)\s+\d+[.,]\d{1,2}\s*$/i.test(line)) {
-      // Riga con selezione+quota (es: "SI 2.05", "OVER 1.33", "1X + OVER 1.31") → scommessa precedente
-      pendingBetLines.push(line);
-    } else if (pendingBetLines.length > 0 && /^\s*(SI|NO|S[IÌ]|OVER|UNDER|GOAL|NO\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2}(?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?|\d\/[1X2](?:\s*\+\s*OVER)?(?:\s*\+\s*UNDER)?)\s*$/i.test(line)) {
-      // Riga con solo selezione (es: "SI", "OVER") → appartiene alla scommessa precedente
-      pendingBetLines.push(line);
-    } else if (pendingBetLines.length > 0 && /^\s*\d+[.,]\d{1,2}\s*$/i.test(line)) {
-      // Riga con solo quota (es: "2.05") → appartiene alla scommessa precedente
-      pendingBetLines.push(line);
-    } else if (pendingBetLines.length > 0 && /^\s*(cartellino|marcatore|risultato|ammonizione|espulsione|autogol|autorete|rigore|corner|tiri|assist|fallo|fuorigioco|parata)\s*$/i.test(line)) {
-      // Etichette tipo scommessa Sportium → ignora senza flush
-      continue;
-    } else if (pendingBetLines.length > 0 && /^\s*(SI|NO|S[IÌ])\s*[|]\s*\d+[.,]\d{1,2}\s*$/i.test(line)) {
-      // Formato "SI | 4.32" (Sportium con separatore) → scommessa precedente
-      pendingBetLines.push(line.replace(/[|]/g, ' '));
     } else {
       // Riga non scommessa (summary, metadata, etc.) → flush pending
       flushPendingBet();
