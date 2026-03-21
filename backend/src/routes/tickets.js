@@ -789,22 +789,39 @@ async function parseSportiumHtml(html, url) {
   const urlIdMatch = url.match(/\/ticket\/([A-Z0-9]+)/i);
   if (urlIdMatch) ticketId = urlIdMatch[1].toUpperCase();
 
-  // Rimuovi HTML tags ma conserva la struttura (newlines per blocchi)
-  const text = html
+  // 1. Rimuovi script, style e commenti HTML (contengono CSS/JS che inquinano il testo)
+  let cleanHtml = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<link[^>]*>/gi, '')
+    .replace(/<meta[^>]*>/gi, '')
+    .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<svg[^>]*>[\s\S]*?<\/svg>/gi, '')
+    .replace(/<path[^>]*\/>/gi, '')
+    .replace(/<img[^>]*>/gi, '');
+
+  // 2. Converti struttura HTML in newlines
+  const text = cleanHtml
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
     .replace(/<\/tr>/gi, '\n')
     .replace(/<\/td>/gi, ' | ')
     .replace(/<\/li>/gi, '\n')
+    .replace(/<\/h[1-6]>/gi, '\n')
     .replace(/<\/span>/gi, ' ')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&euro;/gi, '€')
     .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
     .replace(/&#\d+;/gi, '')
     .replace(/\r\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n');
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ');
 
   console.log('Sportium HTML parsed text (first 500):', text.substring(0, 500));
 
@@ -814,14 +831,37 @@ async function parseSportiumHtml(html, url) {
     if (aamsMatch) ticketId = aamsMatch[1].toUpperCase();
   }
 
-  // Estrai importi
-  const stakeMatch = text.match(/[Ii]mporto\s*(?:pagato|scommesso)[:\s]*([0-9.,]+)\s*€?/);
-  if (stakeMatch) stake = parseFloat(stakeMatch[1].replace(',', '.'));
-  const winMatch = text.match(/[Vv]incita\s*(?:potenziale)?[:\s]*([0-9.,]+)\s*€?/);
-  if (winMatch) potentialWin = parseFloat(winMatch[1].replace(',', '.'));
-  const totalOddsMatch = text.match(/[Qq]uota\s*(?:totale)?[:\s]*([0-9.,]+)/);
-  if (totalOddsMatch) totalOdds = parseFloat(totalOddsMatch[1].replace(',', '.'));
-  const playedAtMatch = text.match(/[Gg]iocata\s*del[:\s]*(\d{1,2}\/\d{1,2}\/\d{2,4})\s*(\d{1,2}[:.]\d{2})?/);
+  // Estrai importi (supporta formati: "Puntata 1,000", "Importo pagato: 5,00 €", "Puntata: 1.00")
+  const stakePatterns = [
+    /[Pp]untata[:\s]*([0-9.,]+)\s*€?/,
+    /[Ii]mporto\s*(?:pagato|scommesso)[:\s]*([0-9.,]+)\s*€?/,
+    /[Ss]take[:\s]*([0-9.,]+)\s*€?/,
+  ];
+  for (const pat of stakePatterns) {
+    const m = text.match(pat);
+    if (m) { stake = parseFloat(m[1].replace(',', '.')); break; }
+  }
+
+  const winPatterns = [
+    /[Vv]incita\s*(?:potenziale|max)?[:\s]*([0-9.,]+)\s*€?/,
+    /[Pp]otenziale\s*(?:vincita)?[:\s]*([0-9.,]+)\s*€?/,
+    /[Pp]ayout[:\s]*([0-9.,]+)\s*€?/,
+  ];
+  for (const pat of winPatterns) {
+    const m = text.match(pat);
+    if (m) { potentialWin = parseFloat(m[1].replace(',', '.')); break; }
+  }
+
+  const oddsPatterns = [
+    /[Qq]uot[ea]\s*(?:totale|complessiva)?[:\s]*([0-9.,]+)/,
+    /[Oo]dds[:\s]*([0-9.,]+)/,
+  ];
+  for (const pat of oddsPatterns) {
+    const m = text.match(pat);
+    if (m) { totalOdds = parseFloat(m[1].replace(',', '.')); break; }
+  }
+
+  const playedAtMatch = text.match(/[Gg]iocata\s*(?:del|il)?[:\s]*(\d{1,2}\/\d{1,2}\/\d{2,4})\s*(\d{1,2}[:.]\d{2})?/);
   if (playedAtMatch) {
     const [, dateStr, timeStr] = playedAtMatch;
     const [d, m, y] = dateStr.split('/');
@@ -1454,11 +1494,21 @@ router.post('/import-url', auth, async (req, res) => {
       }
     }
 
+    // Pulisci il testo da salvare: rimuovi CSS/JS residuo
+    const cleanText = text
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\{[^}]*\}/g, ' ')
+      .replace(/[a-z-]+\s*:\s*[^;]+;/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
     const ticket = new Ticket({
       user: req.user._id,
       ticketId: parsed.ticketId,
       concessionario,
-      ocrRawText: text.substring(0, 50000),
+      ocrRawText: cleanText.substring(0, 50000),
       bets: parsed.bets,
       stake: parsed.stake,
       potentialWin: parsed.potentialWin,
