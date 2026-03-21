@@ -315,13 +315,21 @@ function parseBetLine(line) {
     }
   }
 
-  // Rimuovi odds e selezione dalla descrizione
+  // Rimuovi odds e selezione dalla descrizione, ma conserva testo significativo dopo la quota
   let description = normalized;
   if (selOddsMatch) {
-    // Rimuovi "SI 4.32" e tutto ciò che segue (es. "FISCHIO FINALE" = rumore)
     const idx = description.indexOf(selOddsMatch[0]);
     if (idx > 0) {
-      description = description.substring(0, idx).trim();
+      // Testo prima di "SI 4.32"
+      const before = description.substring(0, idx).trim();
+      // Testo dopo "SI 4.32" (potrebbe contenere "FISCHIO FINALE" o altra parte della descrizione)
+      const after = description.substring(idx + selOddsMatch[0].length).trim();
+      // Se il testo dopo la quota contiene parole significative della scommessa, riattaccalo
+      if (after && /[A-Za-zÀ-ú]{3,}/.test(after)) {
+        description = before + ' ' + after;
+      } else {
+        description = before;
+      }
     }
   } else if (odds) {
     // Rimuovi la quota alla fine
@@ -330,8 +338,6 @@ function parseBetLine(line) {
 
   // Pulizia residui
   description = description.replace(/\|\s*$/, '').replace(/\s+/g, ' ').trim();
-  // Rimuovi eventuale "FISCHIO FINALE" alla fine che rimane (rumore post-quota)
-  description = description.replace(/\s*FISCHIO\s*FINALE\s*$/i, '').trim();
 
   // Estrai nome giocatore: "COGNOME, NOME (SQUADRA)" o "COGNOME NOME (SQUADRA):"
   let player = '';

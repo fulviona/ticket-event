@@ -12,6 +12,7 @@ const betSchema = new mongoose.Schema({
   eventDate: { type: Date },
   score: { type: String, default: '' }, // Risultato live/finale es: "3:3"
   settlementInfo: { type: String, default: '' }, // Info refertazione ADM
+  result: { type: String, enum: ['pending', 'won', 'lost', ''], default: '' }, // Esito singola scommessa
 });
 
 const ticketSchema = new mongoose.Schema({

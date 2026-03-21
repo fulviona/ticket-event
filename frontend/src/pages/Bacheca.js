@@ -162,7 +162,7 @@ function Bacheca() {
                             <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                               {bet.selection && (
                                 <span style={{
-                                  background: bet.selection === 'SI' ? '#1b5e20' : bet.selection === 'NO' ? '#b71c1c' : '#37474f',
+                                  background: bet.result === 'won' ? '#1b5e20' : bet.result === 'lost' ? '#b71c1c' : '#455a64',
                                   padding: '0.2rem 0.6rem', borderRadius: '4px',
                                   fontSize: '0.8rem', color: 'white', fontWeight: 'bold',
                                 }}>{bet.selection}</span>

@@ -198,22 +198,13 @@ function Home({ user }) {
                             {bet.betType}
                           </span>
                         )}
-                        {bet.settlementInfo && (
-                          <details style={{ marginTop: '0.2rem' }}>
-                            <summary style={{ fontSize: '0.7rem', color: '#78909c', cursor: 'pointer' }}>
-                              Refertazione
-                            </summary>
-                            <span style={{ fontSize: '0.7rem', color: '#90a4ae', lineHeight: 1.3 }}>
-                              {bet.settlementInfo}
-                            </span>
-                          </details>
-                        )}
+{/* settlementInfo conservato nei dati per refertazione interna, non visibile al player */}
                       </div>
                     </td>
                     <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                       {bet.selection && (
                         <span style={{
-                          background: bet.selection === 'SI' ? '#1b5e20' : bet.selection === 'NO' ? '#b71c1c' : '#37474f',
+                          background: bet.result === 'won' ? '#1b5e20' : bet.result === 'lost' ? '#b71c1c' : '#455a64',
                           padding: '0.2rem 0.6rem',
                           borderRadius: '4px',
                           fontSize: '0.8rem',
