@@ -729,6 +729,151 @@ function isTicketClosed(text) {
   return CLOSED_STATUSES.some((s) => lower.includes(s));
 }
 
+// ===== Validazione e riparazione scommesse =====
+// Campi obbligatori per ogni bet: match, selection, odds, betType (non N/D), prediction
+const PLACEHOLDER_MATCHES = ['scommessa', 'scommessa caricata', 'ticket da link'];
+
+function validateBets(bets) {
+  const issues = [];
+  if (!bets || bets.length === 0) {
+    issues.push('Nessuna scommessa trovata nel ticket.');
+    return { valid: false, issues };
+  }
+  for (let i = 0; i < bets.length; i++) {
+    const b = bets[i];
+    const label = `Scommessa ${i + 1}` + (b.match && !PLACEHOLDER_MATCHES.includes(b.match.toLowerCase()) ? ` (${b.match})` : '');
+    if (!b.match || PLACEHOLDER_MATCHES.includes(b.match.toLowerCase())) {
+      issues.push(`${label}: partita mancante.`);
+    }
+    if (!b.selection) {
+      issues.push(`${label}: scelta mancante.`);
+    }
+    if (!b.odds || b.odds < 1.01) {
+      issues.push(`${label}: quota mancante o non valida.`);
+    }
+    if (!b.betType || b.betType === 'N/D') {
+      issues.push(`${label}: tipo scommessa non riconosciuto.`);
+    }
+    if (!b.prediction || b.prediction === 'Da verificare manualmente') {
+      issues.push(`${label}: descrizione mancante.`);
+    }
+  }
+  return { valid: issues.length === 0, issues };
+}
+
+// Tenta di riparare i campi mancanti delle scommesse usando il testo grezzo
+function repairBets(bets, rawText) {
+  if (!bets || bets.length === 0 || !rawText) return bets;
+
+  const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+
+  for (const bet of bets) {
+    // 1. Ripara selection mancante: cerca pattern selezione+quota nel testo vicino al match
+    if (!bet.selection && bet.odds) {
+      const oddsStr = bet.odds.toFixed(2).replace('.', '[.,]');
+      // Cerca "SELEZIONE QUOTA" nel testo
+      const selOddsRe = new RegExp('(SI|NO|OVER|UNDER|GOAL|NO\\s*GOAL|GG|NG|PARI|DISPARI|[1X2]{1,2})\\s+' + oddsStr, 'i');
+      const m = rawText.match(selOddsRe);
+      if (m) {
+        bet.selection = m[1].toUpperCase().trim();
+        console.log(`[repairBets] Riparata selezione "${bet.selection}" per ${bet.match} (pattern sel+quota)`);
+      }
+    }
+
+    // 2. Ripara selection mancante per 1X2: cerca il tipo scommessa e la quota vicini
+    if (!bet.selection && bet.prediction && /1\s*X\s*2/i.test(bet.prediction)) {
+      // Per 1X2, cerca ">1<", ">X<", ">2<" nel testo vicino alla quota
+      const team1 = bet.match ? bet.match.split(/\s+vs\s+/i)[0]?.trim() : null;
+      if (team1) {
+        const teamIdx = rawText.indexOf(team1);
+        if (teamIdx >= 0) {
+          const section = rawText.substring(teamIdx, teamIdx + 500);
+          // Cerca selezione isolata (1, X, 2) seguita dalla quota
+          const oddsStr = bet.odds ? bet.odds.toFixed(2) : '';
+          if (oddsStr) {
+            const re1x2 = new RegExp('([1X2])\\s*[|\\s]\\s*' + oddsStr.replace('.', '[.,]'), 'i');
+            const m = section.match(re1x2);
+            if (m) {
+              bet.selection = m[1].toUpperCase();
+              console.log(`[repairBets] Riparata selezione 1X2 "${bet.selection}" per ${bet.match}`);
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Ripara betType N/D: ri-rileva dal prediction
+    if ((!bet.betType || bet.betType === 'N/D') && bet.prediction) {
+      const detected = detectBetType(bet.prediction);
+      if (detected && detected !== 'N/D') {
+        bet.betType = detected;
+        console.log(`[repairBets] Riparato betType "${bet.betType}" per ${bet.match}`);
+      }
+    }
+
+    // 4. Ripara prediction mancante: usa betType + selection come fallback
+    if ((!bet.prediction || bet.prediction === 'Da verificare manualmente') && bet.betType && bet.betType !== 'N/D') {
+      bet.prediction = bet.betType;
+      console.log(`[repairBets] Riparata prediction "${bet.prediction}" per ${bet.match}`);
+    }
+
+    // 5. Ripara odds mancanti: cerca quota nel testo vicino al match
+    if ((!bet.odds || bet.odds < 1.01) && bet.match && !PLACEHOLDER_MATCHES.includes(bet.match.toLowerCase())) {
+      const team1 = bet.match.split(/\s+vs\s+/i)[0]?.trim();
+      if (team1) {
+        const teamIdx = rawText.indexOf(team1);
+        if (teamIdx >= 0) {
+          const section = rawText.substring(teamIdx, teamIdx + 500);
+          const oddsMatches = [...section.matchAll(/(\d+[.,]\d{2})/g)];
+          // Prendi la prima quota valida (>= 1.01)
+          for (const om of oddsMatches) {
+            const val = parseFloat(om[1].replace(',', '.'));
+            if (val >= 1.01 && val < 1000) {
+              bet.odds = val;
+              console.log(`[repairBets] Riparata quota ${bet.odds} per ${bet.match}`);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Rimuovi scommesse placeholder che non sono state riparate
+  return bets.filter(b =>
+    b.match && !PLACEHOLDER_MATCHES.includes(b.match.toLowerCase()) && b.odds && b.odds >= 1.01
+  );
+}
+
+// Validazione completa con tentativi di riparazione.
+// Ritorna { bets, validation } dove bets è l'array riparato
+function validateAndRepairBets(bets, rawText, maxAttempts = 2) {
+  let currentBets = bets;
+  let validation = validateBets(currentBets);
+
+  for (let attempt = 0; attempt < maxAttempts && !validation.valid; attempt++) {
+    console.log(`[validateAndRepairBets] Tentativo riparazione ${attempt + 1}/${maxAttempts}. Problemi: ${validation.issues.join('; ')}`);
+    currentBets = repairBets(currentBets, rawText);
+
+    // Se la riparazione ha eliminato tutte le scommesse, ri-parsa da zero
+    if (currentBets.length === 0 && rawText) {
+      console.log(`[validateAndRepairBets] Nessuna scommessa valida dopo riparazione, ri-parso il testo...`);
+      currentBets = parseBets(rawText);
+      currentBets = repairBets(currentBets, rawText);
+    }
+
+    validation = validateBets(currentBets);
+  }
+
+  if (!validation.valid) {
+    console.log(`[validateAndRepairBets] Validazione finale NON superata: ${validation.issues.join('; ')}`);
+  } else {
+    console.log(`[validateAndRepairBets] Validazione OK: ${currentBets.length} scommesse valide`);
+  }
+
+  return { bets: currentBets, validation };
+}
+
 // ===== ROUTES =====
 
 // Upload ticket con OCR
@@ -798,6 +943,19 @@ router.post('/upload', auth, upload.single('ticket'), async (req, res) => {
     }
     const totalOdds = extractOdds(text);
     const playedAt = extractPlayedAt(text);
+
+    // Validazione e riparazione automatica dei campi
+    const { bets: repairedBets, validation } = validateAndRepairBets(bets, text);
+    bets = repairedBets;
+
+    if (!validation.valid) {
+      console.log(`[Upload OCR] Validazione non superata dopo riparazione: ${validation.issues.join('; ')}`);
+      return res.status(422).json({
+        message: 'Il ticket non è stato importato correttamente. Alcuni campi sono incompleti.',
+        issues: validation.issues,
+        partialBets: bets,
+      });
+    }
 
     const ticket = new Ticket({
       user: req.user._id,
@@ -1685,6 +1843,19 @@ router.post('/import-url', auth, async (req, res) => {
       .replace(/\s{2,}/g, ' ')
       .trim();
 
+    // Validazione e riparazione automatica dei campi
+    const { bets: repairedBets, validation } = validateAndRepairBets(parsed.bets, cleanText);
+    parsed.bets = repairedBets;
+
+    if (!validation.valid) {
+      console.log(`[Import URL] Validazione non superata dopo riparazione: ${validation.issues.join('; ')}`);
+      return res.status(422).json({
+        message: 'Il ticket non è stato importato correttamente. Alcuni campi sono incompleti.',
+        issues: validation.issues,
+        partialBets: parsed.bets,
+      });
+    }
+
     const ticket = new Ticket({
       user: req.user._id,
       ticketId: parsed.ticketId,
@@ -1742,7 +1913,7 @@ router.post('/import-text', auth, async (req, res) => {
     }
 
     const concessionario = detectConcessionario(text) || (sourceUrl ? detectConcessionario(sourceUrl) : '');
-    const bets = parseBets(text);
+    let bets = parseBets(text);
 
     let stake = extractAmount(text, 'importo\\s*(?:pagato|giocato|scommesso)');
     if (!stake) stake = extractAmount(text, 'totale\\s*importo\\s*scommesso');
@@ -1752,6 +1923,19 @@ router.post('/import-text', auth, async (req, res) => {
     if (!potentialWin) potentialWin = extractAmount(text, 'vincita');
     const totalOdds = extractOdds(text);
     const playedAt = extractPlayedAt(text);
+
+    // Validazione e riparazione automatica dei campi
+    const { bets: repairedBets, validation } = validateAndRepairBets(bets, text);
+    bets = repairedBets;
+
+    if (!validation.valid) {
+      console.log(`[Import Text] Validazione non superata dopo riparazione: ${validation.issues.join('; ')}`);
+      return res.status(422).json({
+        message: 'Il ticket non è stato importato correttamente. Alcuni campi sono incompleti.',
+        issues: validation.issues,
+        partialBets: bets,
+      });
+    }
 
     const ticket = new Ticket({
       user: req.user._id,
@@ -1819,7 +2003,12 @@ router.patch('/:id/reparse', auth, async (req, res) => {
     if (!ticket.ocrRawText) {
       return res.status(400).json({ message: 'Testo OCR originale non disponibile.' });
     }
-    const bets = parseBets(ticket.ocrRawText);
+    let bets = parseBets(ticket.ocrRawText);
+
+    // Validazione e riparazione automatica dei campi
+    const { bets: repairedBets, validation } = validateAndRepairBets(bets, ticket.ocrRawText);
+    bets = repairedBets;
+
     ticket.bets = bets.map((b) => ({
       match: b.match,
       sport: b.sport || '',
@@ -1830,10 +2019,18 @@ router.patch('/:id/reparse', auth, async (req, res) => {
       player: b.player || '',
       odds: b.odds,
       eventDate: b.eventDate,
-      score: b.score || '',
+      score: '',
       settlementInfo: b.settlementInfo || '',
     }));
     await ticket.save();
+
+    if (!validation.valid) {
+      return res.json({
+        message: 'Ticket ri-analizzato ma alcuni campi sono ancora incompleti.',
+        issues: validation.issues,
+        ticket,
+      });
+    }
     res.json({ message: 'Ticket ri-analizzato con successo!', ticket });
   } catch (err) {
     console.error('Errore reparse:', err);

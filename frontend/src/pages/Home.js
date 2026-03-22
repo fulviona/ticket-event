@@ -64,7 +64,12 @@ function Home({ user }) {
       if (fileRef.current) fileRef.current.value = '';
       loadTickets();
     } catch (err) {
-      setError(err.response?.data?.message || 'Errore durante il caricamento.');
+      const issues = err.response?.data?.issues;
+      if (issues && issues.length > 0) {
+        setError(err.response.data.message + '\n' + issues.join('\n'));
+      } else {
+        setError(err.response?.data?.message || 'Errore durante il caricamento.');
+      }
     } finally {
       setUploading(false);
     }
@@ -86,7 +91,12 @@ function Home({ user }) {
         setShowPasteBox(true);
         setError('Tutti i metodi automatici sono falliti. Apri il link, copia il testo e incollalo qui sotto.');
       } else {
-        setError(err.response?.data?.message || 'Errore durante l\'importazione dal link.');
+        const issues = err.response?.data?.issues;
+        if (issues && issues.length > 0) {
+          setError(err.response.data.message + '\n' + issues.join('\n'));
+        } else {
+          setError(err.response?.data?.message || 'Errore durante l\'importazione dal link.');
+        }
       }
     } finally {
       setImportingUrl(false);
@@ -109,7 +119,12 @@ function Home({ user }) {
       setShowPasteBox(false);
       loadTickets();
     } catch (err) {
-      setError(err.response?.data?.message || 'Errore durante l\'importazione.');
+      const issues = err.response?.data?.issues;
+      if (issues && issues.length > 0) {
+        setError(err.response.data.message + '\n' + issues.join('\n'));
+      } else {
+        setError(err.response?.data?.message || 'Errore durante l\'importazione.');
+      }
     } finally {
       setImportingUrl(false);
     }
@@ -117,8 +132,14 @@ function Home({ user }) {
 
   const handleReparse = async (id) => {
     try {
-      await reparseTicket(id);
-      setMessage('Ticket ri-analizzato con successo!');
+      const res = await reparseTicket(id);
+      const issues = res.data?.issues;
+      if (issues && issues.length > 0) {
+        setMessage(res.data.message);
+        setError('Campi incompleti:\n' + issues.join('\n'));
+      } else {
+        setMessage('Ticket ri-analizzato con successo!');
+      }
       loadTickets();
     } catch (err) {
       setError(err.response?.data?.message || 'Errore durante la ri-analisi.');
@@ -323,7 +344,7 @@ function Home({ user }) {
         </p>
 
         {message && <div className="success-msg">{message}</div>}
-        {error && <div className="error-msg">{error}</div>}
+        {error && <div className="error-msg" style={{ whiteSpace: 'pre-line' }}>{error}</div>}
 
         <div className="upload-area" onClick={() => fileRef.current?.click()}>
           {preview ? (
