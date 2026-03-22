@@ -10,6 +10,8 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const Ticket = require('../models/Ticket');
 const { auth } = require('../middleware/auth');
+const { pageTextLooksLikeSportiumTicket } = require('../utils/ticketPageText');
+const { fetchWithScrapingService } = require('../services/ticketImportFetch');
 
 puppeteer.use(StealthPlugin());
 
@@ -1229,23 +1231,6 @@ async function parseSportiumHtml(html, url) {
   return { bets: [{ match: 'Ticket da link', prediction: 'Da verificare manualmente', betType: 'N/D', eventDate: new Date() }], stake, potentialWin, totalOdds, ticketId, playedAt };
 }
 
-/**
- * True se il testo sembra una schedina reale (non solo home/cookie wall Sportium).
- * Usato anche per decidere se fermarsi su CycleTLS/curl veloci o passare a ScraperAPI.
- */
-function pageTextLooksLikeSportiumTicket(text) {
-  if (!text || text.length < 80) return false;
-  const t = text.replace(/\s+/g, ' ');
-  const hasMatchLine =
-    /[a-zà-ú0-9][a-zà-ú0-9\s.'-]{1,45}\s+vs\.?\s+[a-zà-ú0-9][a-zà-ú0-9\s.'-]{1,45}/i.test(t) ||
-    (/[a-zà-ú0-9][a-zà-ú0-9\s.'-]{2,}\s+[-–]\s+[a-zà-ú0-9][a-zà-ú0-9\s.'-]{2,}/i.test(t) &&
-      !/\b(login|registrati|cookie policy|benvenut)\b/i.test(t));
-  const hasQuotaOrGiocata =
-    /\d+[.,]\d{2}/.test(t) &&
-    /\b(giocata|quota|importo|aams|adm|venduto|scommess|vincita\s*potenziale)\b/i.test(t);
-  return Boolean(hasMatchLine && hasQuotaOrGiocata);
-}
-
 /** Akamai / WAF: pagina di blocco (tipico su Puppeteer da datacenter come Render). */
 function pageTextIsAkamaiOrAccessDenied(text) {
   if (!text || text.length < 20) return false;
@@ -1283,120 +1268,6 @@ function normalizeTicketUrl(raw) {
   } catch {
     return null;
   }
-}
-
-/** Singola richiesta HTTP verso API ScraperAPI / Scrape.do (timeout rigido, niente retry). */
-function fetchScraperProxyHtml(apiUrl, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`Timeout ${timeoutMs}ms`)), timeoutMs);
-    const protocol = apiUrl.startsWith('https') ? https : http;
-    const req = protocol.get(
-      apiUrl,
-      {
-        headers: {
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'it-IT,it;q=0.9',
-        },
-      },
-      (res) => {
-        if (res.statusCode !== 200) {
-          clearTimeout(timer);
-          reject(new Error(`HTTP ${res.statusCode}`));
-          return;
-        }
-        let data = '';
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-        res.on('end', () => {
-          clearTimeout(timer);
-          resolve(data);
-        });
-        res.on('error', (err) => {
-          clearTimeout(timer);
-          reject(err);
-        });
-      }
-    );
-    req.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
-}
-
-// Scraping API (proxy residenziali). Per Sportium /ticket/ solo render=true (schedina JS), più stabile e meno chiamate.
-async function fetchWithScrapingService(url, options = {}) {
-  const { sportiumTicketPage = false } = options;
-  const blockPatterns = [
-    'Access Denied',
-    '403 Forbidden',
-    'Just a moment',
-    'Bot detected',
-    'captcha',
-    'errors.edgesuite.net',
-  ];
-
-  const services = [];
-  const scraperApiKey = process.env.SCRAPER_API_KEY;
-  if (scraperApiKey) {
-    services.push({
-      name: 'ScraperAPI',
-      buildUrl: (render) =>
-        `https://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&country_code=it${render ? '&render=true' : ''}`,
-    });
-  }
-  const scrapeDoToken = process.env.SCRAPE_DO_TOKEN;
-  if (scrapeDoToken) {
-    services.push({
-      name: 'Scrape.do',
-      buildUrl: (render) =>
-        `https://api.scrape.do/?token=${scrapeDoToken}&url=${encodeURIComponent(url)}${render ? '&render=true&super=true' : ''}`,
-    });
-  }
-
-  if (services.length === 0) {
-    console.log('[fetchWithScrapingService] Nessuna API key (SCRAPER_API_KEY o SCRAPE_DO_TOKEN)');
-    return null;
-  }
-
-  const ticketLikeUrl = /\/ticket\//i.test(url);
-  const renderModes = sportiumTicketPage ? [true] : [false, true];
-
-  for (const service of services) {
-    for (const render of renderModes) {
-      const mode = render ? 'render=true (JS)' : 'render=false (veloce)';
-      const timeoutMs = render ? 45000 : 20000;
-      try {
-        const apiUrl = service.buildUrl(render);
-        console.log(`[fetchWithScrapingService] ${service.name} ${mode}, timeout ${timeoutMs}ms`);
-        const html = await fetchScraperProxyHtml(apiUrl, timeoutMs);
-        const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        const isBlocked = text.length < 100 || blockPatterns.some((p) => text.includes(p));
-        if (isBlocked) {
-          console.log(`[fetchWithScrapingService] ${service.name} risposta bloccata/vuota (${text.length} char) ${mode}`);
-          continue;
-        }
-        // BUGFIX: render=false spesso restituisce solo shell SPA (15k+ char) senza schedina → NON uscire prima di render=true
-        if (
-          !render &&
-          ticketLikeUrl &&
-          !pageTextLooksLikeSportiumTicket(text) &&
-          text.length > 400
-        ) {
-          console.log(
-            `[fetchWithScrapingService] ${service.name}: ${text.length} char senza dati schedina (${mode}) → provo render=true (JS)`,
-          );
-          continue;
-        }
-        console.log(`[fetchWithScrapingService] ${service.name} OK ${text.length} char (${mode})`);
-        return { html, text };
-      } catch (e) {
-        console.log(`[fetchWithScrapingService] ${service.name} ${mode}: ${e.message}`);
-      }
-    }
-  }
-  return null;
 }
 
 // Strategia 1: CycleTLS — simula il TLS fingerprint (JA3) di Chrome reale
@@ -1870,16 +1741,16 @@ router.post('/import-url', auth, async (req, res) => {
 
       const sportiumTicketPage = /sportium\.it/i.test(normalizedUrl) && /\/ticket\//i.test(normalizedUrl);
       console.log(
-        `[Import URL] Solo ScraperAPI (proxy)${sportiumTicketPage ? ' — render=true per schedina Sportium' : ''}: ${normalizedUrl}`,
+        `[Import URL] Fetch proxy (Scrape.do / ScraperAPI)${sportiumTicketPage ? ' — strategie Sportium (SPA + attese JS)' : ''}: ${normalizedUrl}`,
       );
 
       const scrapingResult = await fetchWithScrapingService(normalizedUrl, { sportiumTicketPage });
       if (scrapingResult && scrapingResult.text.length > 100) {
         html = scrapingResult.html;
         text = scrapingResult.text;
-        console.log(`[Import URL] ScraperAPI OK: ${text.length} caratteri`);
+        console.log(`[Import URL] HTML ricevuto: ${text.length} caratteri di testo`);
       } else {
-        console.log('[Import URL] ScraperAPI: nessuna risposta utile');
+        console.log('[Import URL] Nessun fetch proxy riuscito (schedina non riconosciuta o errori)');
       }
 
       const blockPatterns = [
