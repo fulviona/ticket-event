@@ -13,6 +13,7 @@ function Leaderboard() {
   return (
     <div className="leaderboard">
       <h2>Classifica</h2>
+      <div className="table-responsive">
       <table className="leaderboard-table">
         <thead>
           <tr>
@@ -55,6 +56,7 @@ function Leaderboard() {
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

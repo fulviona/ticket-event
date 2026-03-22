@@ -152,6 +152,7 @@ function Bacheca() {
                         <span style={{ marginLeft: '0.5rem', color: '#ffb74d', fontWeight: 'normal', fontSize: '0.9rem' }}>({group.score})</span>
                       )}
                     </div>
+                    <div className="table-responsive">
                     <table className="bet-table">
                       <thead>
                         <tr>
@@ -198,6 +199,7 @@ function Bacheca() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 ))}
 

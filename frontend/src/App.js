@@ -13,11 +13,22 @@ import AdminAnalytics from './pages/AdminAnalytics';
 import Bacheca from './pages/Bacheca';
 import CookieBanner from './components/CookieBanner';
 import AppFooter from './components/AppFooter';
+import { useViewport } from './hooks/useViewport';
 import './App.css';
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [navOpen, setNavOpen] = useState(false);
+  const { isMobile, isTablet } = useViewport();
+
+  useEffect(() => {
+    if (!isMobile) setNavOpen(false);
+  }, [isMobile]);
+
+  useEffect(() => {
+    document.documentElement.dataset.layout = isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop';
+  }, [isMobile, isTablet]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -38,51 +49,74 @@ function App() {
 
   if (loading) return <div className="loading">Caricamento...</div>;
 
+  const closeNav = () => setNavOpen(false);
+
   return (
     <Router>
-      <div className="app">
+      <div className={`app ${isMobile ? 'app--mobile' : isTablet ? 'app--tablet' : 'app--desktop'}`}>
         <CookieBanner />
-        <nav className="navbar">
-          <Link to={user?.role === 'admin' ? '/admin/analytics' : '/'} className="logo">Ticket Event</Link>
-          <div className="nav-links">
+        <nav className={`navbar ${isMobile ? 'navbar--mobile' : ''}`} aria-label="Navigazione principale">
+          <div className="navbar-top">
+            <Link
+              to={user?.role === 'admin' ? '/admin/analytics' : '/'}
+              className="logo"
+              onClick={closeNav}
+            >
+              Ticket Event
+            </Link>
+            {isMobile && (
+              <button
+                type="button"
+                className={`nav-burger ${navOpen ? 'nav-burger--open' : ''}`}
+                aria-expanded={navOpen}
+                aria-controls="main-nav-links"
+                aria-label={navOpen ? 'Chiudi menu' : 'Apri menu'}
+                onClick={() => setNavOpen((o) => !o)}
+              >
+                <span className="nav-burger__line" />
+                <span className="nav-burger__line" />
+                <span className="nav-burger__line" />
+              </button>
+            )}
+          </div>
+          <div
+            id="main-nav-links"
+            className={`nav-links ${isMobile ? 'nav-links--drawer' : ''} ${isMobile && navOpen ? 'nav-links--open' : ''}`}
+          >
             {user ? (
               <>
                 {user.role !== 'admin' && (
                   <>
-                    <Link to="/">Home</Link>
-                    <Link to="/bacheca">Bacheca</Link>
+                    <Link to="/" onClick={closeNav}>Home</Link>
+                    <Link to="/bacheca" onClick={closeNav}>Bacheca</Link>
                   </>
                 )}
-                <Link to="/leaderboard">Classifica</Link>
+                <Link to="/leaderboard" onClick={closeNav}>Classifica</Link>
                 {user.role === 'admin' && (
                   <>
-                    <Link to="/admin/analytics">Analytics</Link>
-                    <Link to="/admin/users">Utenti</Link>
-                    <Link to="/admin/tickets">Ticket</Link>
-                    <Link to="/admin/events">Eventi</Link>
+                    <Link to="/admin/analytics" onClick={closeNav}>Analytics</Link>
+                    <Link to="/admin/users" onClick={closeNav}>Utenti</Link>
+                    <Link to="/admin/tickets" onClick={closeNav}>Ticket</Link>
+                    <Link to="/admin/events" onClick={closeNav}>Eventi</Link>
                   </>
                 )}
-                <Link to="/profile" className="user-info" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', textDecoration: 'none' }}>
+                <Link to="/profile" className="user-info" onClick={closeNav} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', textDecoration: 'none' }}>
                   {user.avatar ? (
-                    <img src={user.avatar} alt="" style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }} />
+                    <img src={user.avatar} alt="" className="user-info__avatar" />
                   ) : (
-                    <div style={{
-                      width: 24, height: 24, borderRadius: '50%', background: '#263238',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '0.7rem', color: '#4fc3f7', fontWeight: 'bold',
-                    }}>
+                    <div className="user-info__avatar user-info__avatar--placeholder">
                       {user.alias?.charAt(0).toUpperCase() || '?'}
                     </div>
                   )}
-                  <span>{user.alias || user.email}</span>
-                  <span style={{ color: '#81c784', fontSize: '0.85rem' }}>({user.points} pt)</span>
+                  <span className="user-info__alias">{user.alias || user.email}</span>
+                  <span className="user-info__points">({user.points} pt)</span>
                 </Link>
-                <button onClick={handleLogout} className="btn-logout">Esci</button>
+                <button type="button" onClick={() => { handleLogout(); closeNav(); }} className="btn-logout">Esci</button>
               </>
             ) : (
               <>
-                <Link to="/login">Accedi</Link>
-                <Link to="/register">Registrati</Link>
+                <Link to="/login" onClick={closeNav}>Accedi</Link>
+                <Link to="/register" onClick={closeNav}>Registrati</Link>
               </>
             )}
           </div>

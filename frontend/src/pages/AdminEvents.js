@@ -80,6 +80,7 @@ function AdminEvents() {
         <button type="submit" className="btn-small btn-success">Aggiungi</button>
       </form>
 
+      <div className="table-responsive">
       <table className="admin-table">
         <thead>
           <tr>
@@ -106,6 +107,7 @@ function AdminEvents() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

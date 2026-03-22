@@ -256,6 +256,7 @@ function Home({ user }) {
               {group.match}
             </div>
             {/* Tabella scommesse della partita */}
+            <div className="table-responsive">
             <table className="bet-table">
               <thead>
                 <tr>
@@ -319,6 +320,7 @@ function Home({ user }) {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         ))}
 

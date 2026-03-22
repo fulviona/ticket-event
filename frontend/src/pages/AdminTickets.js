@@ -112,7 +112,7 @@ function AdminTickets() {
       {message && <div className="success-msg">{message}</div>}
       {error && <div className="error-msg">{error}</div>}
 
-      <div style={{ overflowX: 'auto' }}>
+      <div className="table-responsive">
         <table className="admin-table">
           <thead>
             <tr>
