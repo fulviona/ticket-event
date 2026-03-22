@@ -1,0 +1,27 @@
+---
+description: Contesto Ticket Event — stack, cartelle, convenzioni
+alwaysApply: true
+---
+
+## Stack
+
+- **Frontend**: React 18, React Router, Axios (`frontend/src/`). Build: `frontend/build` (CRA). Proxy dev → `http://localhost:5000`.
+- **Backend**: Node.js, Express, JWT + bcrypt (`backend/src/`). Entry: `backend/src/server.js`.
+- **DB**: MongoDB via Mongoose (`backend/src/models/`, `backend/src/config/db.js`).
+- **Deploy**: `render.yaml` in root; backend può servire lo statico in produzione con `SERVE_FRONTEND=true` e `NODE_ENV=production`.
+
+## Struttura
+
+- API REST sotto **`/api/*`** (auth, users, tickets, events, analytics). Health: `GET /api/health` → `{ status, backendVersion }` (versione da `backend/package.json`).
+- Route Express in `backend/src/routes/`; modelli in `backend/src/models/`; middleware `backend/src/middleware/auth.js` (`auth`, `adminAuth`).
+- Frontend: pagine in `frontend/src/pages/`, client API Axios in `frontend/src/services/api.js`, utilità in `frontend/src/utils/`, shell app in `frontend/src/App.js`.
+
+## Convenzioni
+
+- Nuove route: stesso stile delle esistenti (validator dove serve, risposte JSON con `message` o payload coerente).
+- Non committare segreti: usare `backend/.env` da `.env.example`.
+- Dopo modifiche a **frontend o backend** che impattano l’app, considera bump versione (vedi skill `bump-and-commit` e `scripts/bump-version.js`).
+
+## Documentazione
+
+- Panoramica e endpoint: **`README.md`** nella root del repo.
