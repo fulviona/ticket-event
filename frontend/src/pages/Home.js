@@ -146,7 +146,6 @@ function Home({ user }) {
           match: bet.match,
           sport: bet.sport || '',
           competition: bet.competition || '',
-          score: bet.score || '',
           eventDate: bet.eventDate,
           bets: [],
         };
@@ -227,14 +226,9 @@ function Home({ user }) {
               {group.sport && <span> - {group.sport}</span>}
               {group.competition && <span> - {group.competition}</span>}
             </div>
-            {/* Nome partita con eventuale punteggio */}
+            {/* Nome partita */}
             <div style={{ fontWeight: 'bold', marginBottom: '0.5rem', fontSize: '1rem' }}>
               {group.match}
-              {group.score && (
-                <span style={{ marginLeft: '0.5rem', color: '#ffb74d', fontWeight: 'normal', fontSize: '0.9rem' }}>
-                  ({group.score})
-                </span>
-              )}
             </div>
             {/* Tabella scommesse della partita */}
             <table className="bet-table">

@@ -337,21 +337,21 @@ function parseEventHeader(line) {
 function parseMatchLine(line) {
   // Pattern: Team1 vs Team2 con opzionale punteggio
   // Usa .+? per catturare nomi squadre con qualsiasi carattere
-  const m = line.match(/^(.+?)\s+vs\.?\s+(.+?)(?:\s*\((\d+[:.]\d+)\))?\s*$/i);
+  const m = line.match(/^(.+?)\s+vs\.?\s+(.+?)(?:\s*\(\d+[:.]\d+\))?[\s\u24D8\u2139ⓘ]*$/i);
   if (m && m[1].trim().length >= 2 && m[2].trim().length >= 2) {
     return {
       match: `${m[1].trim()} vs ${m[2].trim()}`,
-      score: m[3] ? m[3].replace('.', ':') : '',
+      score: '',
     };
   }
   // Pattern ADM: "ROMA - LAZIO" con separatore "-" o "–"
   // NON per date (inizia con numero) e NON per righe giocatore (contiene parentesi con squadra)
   if (!line.match(/^\d{1,2}[/.-]\d{1,2}/) && !line.match(/\([A-Za-zÀ-ú\s.]+\)\s*[:/O]/i)) {
-    const m2 = line.match(/^([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']+?)\s+[-–]\s+([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']+?)(?:\s*\((\d+[:.]\d+)\))?\s*$/i);
+    const m2 = line.match(/^([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']+?)\s+[-–]\s+([A-Za-zÀ-ú][A-Za-zÀ-ú0-9\s.']+?)(?:\s*\(\d+[:.]\d+\))?[\s\u24D8\u2139ⓘ]*$/i);
     if (m2 && m2[1].trim().length >= 2 && m2[2].trim().length >= 2) {
       return {
         match: `${m2[1].trim()} vs ${m2[2].trim()}`,
-        score: m2[3] ? m2[3].replace('.', ':') : '',
+        score: '',
       };
     }
   }
