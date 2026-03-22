@@ -25,6 +25,7 @@ body {
   min-height: 100vh;
   font-size: var(--text-base);
   line-height: 1.45;
+  overflow-x: hidden;
 }
 
 /* Tipografia più compatta su smartphone */
@@ -40,6 +41,8 @@ html[data-layout='desktop'] body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .loading {
@@ -254,11 +257,9 @@ html[data-layout='desktop'] body {
 }
 
 .app--mobile .table-responsive {
-  margin-left: calc(-1 * var(--page-pad-x));
-  margin-right: calc(-1 * var(--page-pad-x));
-  padding-left: var(--page-pad-x);
-  padding-right: var(--page-pad-x);
-  max-width: 100vw;
+  margin-left: 0;
+  margin-right: 0;
+  max-width: 100%;
 }
 
 .main-content--grow {
@@ -427,12 +428,156 @@ html[data-layout='desktop'] body {
   margin-bottom: 1rem;
 }
 
+.tickets-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tickets-tabs .btn-small {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.82rem;
+}
+
+/* Import URL row (evita overflow orizzontale su mobile) */
+.home-url-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.5rem;
+  max-width: 500px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.home-url-import-input {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #37474f;
+  border-radius: 4px;
+  background: #263238;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+
+.home-url-import-btn {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+  padding: 0.6rem 1rem !important;
+  max-width: none;
+  white-space: nowrap;
+}
+
 .ticket-card {
   background: #1a2530;
   border-radius: 8px;
   padding: 1.2rem;
   margin-bottom: 1rem;
   border-left: 4px solid #37474f;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.ticket-card__header {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.ticket-card__header--simple {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+}
+
+.ticket-card__header--simple .ticket-card__actions {
+  flex: 0 0 auto;
+  width: auto;
+  justify-content: flex-end;
+}
+
+.ticket-card__meta {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: #78909c;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ticket-card__id,
+.ticket-card__concessionario {
+  display: inline;
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.ticket-card__id {
+  font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+}
+
+.ticket-card__concessionario {
+  color: #80cbc4;
+}
+
+.ticket-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.ticket-card__btn-action {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  padding: 0.35rem 0.55rem;
+}
+
+.ticket-card__actions .ticket-status {
+  flex: 0 0 auto;
+  max-width: 100%;
+  text-align: center;
+}
+
+@media (min-width: 560px) {
+  .ticket-card__header:not(.ticket-card__header--simple) {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem 0.75rem;
+  }
+
+  .ticket-card__header:not(.ticket-card__header--simple) .ticket-card__meta {
+    flex: 1 1 12rem;
+    min-width: 0;
+    max-width: min(100%, calc(100% - 11rem));
+  }
+
+  .ticket-card__header:not(.ticket-card__header--simple) .ticket-card__actions {
+    flex: 0 1 auto;
+    width: auto;
+    max-width: 100%;
+    justify-content: flex-end;
+  }
 }
 
 .ticket-card.won {
@@ -466,6 +611,9 @@ html[data-layout='desktop'] body {
   padding: 0.6rem 0.8rem;
   margin-bottom: 0.5rem;
   border-left: 2px solid #37474f;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .bet-item {
@@ -1010,6 +1158,33 @@ html[data-layout='desktop'] body {
   .btn-small {
     padding: 0.3rem 0.5rem;
     font-size: 0.75rem;
+  }
+  .ticket-card__header--simple {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ticket-card__header--simple .ticket-card__actions {
+    align-self: flex-end;
+    width: auto;
+  }
+  .ticket-card__btn-action {
+    font-size: 0.68rem;
+    padding: 0.3rem 0.45rem;
+  }
+  .home-url-import-row {
+    max-width: 100%;
+  }
+  .home-url-import-btn {
+    flex: 1 1 auto;
+    min-width: 5.5rem;
+  }
+  .bet-table {
+    table-layout: fixed;
+  }
+  .bet-table thead th,
+  .bet-table .bet-row td {
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
   .analytics-grid {
     grid-template-columns: repeat(2, 1fr);

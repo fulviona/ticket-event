@@ -1,6 +1,6 @@
 {
   "name": "ticket-event",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Ticket Event - webapp scommesse sportive",
   "scripts": {
     "bump": "node scripts/bump-version.js",

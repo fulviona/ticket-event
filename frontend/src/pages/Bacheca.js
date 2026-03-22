@@ -126,15 +126,17 @@ function Bacheca() {
 
             return (
               <div key={ticket._id} className={`ticket-card ${ticket.status}`}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                  <span style={{ color: '#78909c', fontSize: '0.85rem' }}>
+                <div className="ticket-card__header ticket-card__header--simple">
+                  <div className="ticket-card__meta">
                     {new Date(ticket.playedAt || ticket.createdAt).toLocaleDateString('it-IT', {
                       day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
                     })}
-                  </span>
-                  <span className={`ticket-status ${ticket.status}`}>
-                    {ticket.status === 'won' ? 'Vinto' : ticket.status === 'lost' ? 'Perso' : 'In attesa'}
-                  </span>
+                  </div>
+                  <div className="ticket-card__actions">
+                    <span className={`ticket-status ${ticket.status}`}>
+                      {ticket.status === 'won' ? 'Vinto' : ticket.status === 'lost' ? 'Perso' : 'In attesa'}
+                    </span>
+                  </div>
                 </div>
 
                 {groups.map((group, gi) => (

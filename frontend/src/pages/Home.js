@@ -189,8 +189,8 @@ function Home({ user }) {
 
     return (
       <div key={ticket._id} className={`ticket-card ${ticket.status}`}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-          <span style={{ color: '#78909c', fontSize: '0.85rem' }}>
+        <div className="ticket-card__header">
+          <div className="ticket-card__meta">
             {showUser && ticket.user && (
               <span style={{ color: '#4fc3f7', marginRight: '0.5rem' }}>
                 {ticket.user.avatar && (
@@ -203,33 +203,34 @@ function Home({ user }) {
               day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
             })}
             {ticket.ticketId && (
-              <span style={{ marginLeft: '0.5rem', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+              <span className="ticket-card__id">
                 ID: {ticket.ticketId.substring(0, 12)}...
               </span>
             )}
             {ticket.concessionario && (
-              <span style={{ marginLeft: '0.5rem', color: '#80cbc4', fontSize: '0.75rem' }}>
+              <span className="ticket-card__concessionario">
                 {ticket.concessionario}
               </span>
             )}
-          </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          </div>
+          <div className="ticket-card__actions">
             {!showUser && (
               <>
                 <button
-                  className="btn-small"
-                  style={{ background: '#37474f', color: '#90a4ae', fontSize: '0.7rem' }}
+                  type="button"
+                  className="btn-small ticket-card__btn-action"
+                  style={{ background: '#37474f', color: '#90a4ae' }}
                   onClick={() => handleReparse(ticket._id)}
                   title="Ri-analizza il ticket con il parser aggiornato"
                 >
                   Ri-analizza
                 </button>
                 <button
-                  className="btn-small"
+                  type="button"
+                  className="btn-small ticket-card__btn-action"
                   style={{
                     background: ticket.shared ? '#2e7d32' : '#37474f',
                     color: 'white',
-                    fontSize: '0.75rem',
                   }}
                   onClick={() => handleShare(ticket._id)}
                   title={ticket.shared ? 'Clicca per nascondere' : 'Clicca per condividere'}
@@ -384,26 +385,18 @@ function Home({ user }) {
           <p style={{ color: '#78909c', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
             Oppure incolla il link di condivisione del ticket
           </p>
-          <div style={{ display: 'flex', gap: '0.5rem', maxWidth: '500px', margin: '0 auto' }}>
+          <div className="home-url-import-row">
             <input
               type="url"
               placeholder="https://sportium.it/sport/ticket/..."
               value={ticketUrl}
               onChange={(e) => setTicketUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleImportUrl()}
-              style={{
-                flex: 1,
-                padding: '0.6rem 0.8rem',
-                border: '1px solid #37474f',
-                borderRadius: '4px',
-                background: '#263238',
-                color: '#e0e0e0',
-                fontSize: '0.9rem',
-              }}
+              className="home-url-import-input"
             />
             <button
-              className="btn-primary"
-              style={{ maxWidth: '120px', marginTop: 0, padding: '0.6rem 1rem' }}
+              type="button"
+              className="btn-primary home-url-import-btn"
               onClick={handleImportUrl}
               disabled={!ticketUrl.trim() || importingUrl}
             >
@@ -445,8 +438,9 @@ function Home({ user }) {
       </div>
 
       <div className="tickets-section">
-        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+        <div className="tickets-tabs">
           <button
+            type="button"
             className="btn-small"
             style={{ background: tab === 'my' ? '#4fc3f7' : '#37474f', color: tab === 'my' ? '#0f1923' : 'white' }}
             onClick={() => setTab('my')}
@@ -454,6 +448,7 @@ function Home({ user }) {
             I miei Ticket ({tickets.length})
           </button>
           <button
+            type="button"
             className="btn-small"
             style={{ background: tab === 'shared' ? '#4fc3f7' : '#37474f', color: tab === 'shared' ? '#0f1923' : 'white' }}
             onClick={() => { setTab('shared'); loadShared(); }}
