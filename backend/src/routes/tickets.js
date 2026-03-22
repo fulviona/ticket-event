@@ -1229,93 +1229,117 @@ async function parseSportiumHtml(html, url) {
   return { bets: [{ match: 'Ticket da link', prediction: 'Da verificare manualmente', betType: 'N/D', eventDate: new Date() }], stake, potentialWin, totalOdds, ticketId, playedAt };
 }
 
-// Strategia 0: Scraping API con proxy residenziali (bypassa Akamai via IP residenziale)
-// Supporta ScraperAPI e Scrape.do — configurabili via env vars
-async function fetchWithScrapingService(url) {
-  const services = [];
+/**
+ * True se il testo sembra una schedina reale (non solo home/cookie wall Sportium).
+ * Usato anche per decidere se fermarsi su CycleTLS/curl veloci o passare a ScraperAPI.
+ */
+function pageTextLooksLikeSportiumTicket(text) {
+  if (!text || text.length < 80) return false;
+  const t = text.replace(/\s+/g, ' ');
+  const hasMatchLine =
+    /[a-zà-ú0-9][a-zà-ú0-9\s.'-]{1,45}\s+vs\.?\s+[a-zà-ú0-9][a-zà-ú0-9\s.'-]{1,45}/i.test(t) ||
+    (/[a-zà-ú0-9][a-zà-ú0-9\s.'-]{2,}\s+[-–]\s+[a-zà-ú0-9][a-zà-ú0-9\s.'-]{2,}/i.test(t) &&
+      !/\b(login|registrati|cookie policy|benvenut)\b/i.test(t));
+  const hasQuotaOrGiocata =
+    /\d+[.,]\d{2}/.test(t) &&
+    /\b(giocata|quota|importo|aams|adm|venduto|scommess|vincita\s*potenziale)\b/i.test(t);
+  return Boolean(hasMatchLine && hasQuotaOrGiocata);
+}
 
-  // ScraperAPI: 5000 crediti gratis poi 1000/mese - https://www.scraperapi.com
+/** Singola richiesta HTTP verso API ScraperAPI / Scrape.do (timeout rigido, niente retry). */
+function fetchScraperProxyHtml(apiUrl, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timeout ${timeoutMs}ms`)), timeoutMs);
+    const protocol = apiUrl.startsWith('https') ? https : http;
+    const req = protocol.get(
+      apiUrl,
+      {
+        headers: {
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'it-IT,it;q=0.9',
+        },
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          clearTimeout(timer);
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          clearTimeout(timer);
+          resolve(data);
+        });
+        res.on('error', (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+      }
+    );
+    req.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+// Strategia: Scraping API — prima render=false (pochi secondi), poi render=true solo se serve.
+// Niente 3 retry da 60s: su HTTP 500 si passa subito alla modalità successiva (evita ~2 min di attesa).
+async function fetchWithScrapingService(url) {
+  const blockPatterns = [
+    'Access Denied',
+    '403 Forbidden',
+    'Just a moment',
+    'Bot detected',
+    'captcha',
+    'errors.edgesuite.net',
+  ];
+
+  const services = [];
   const scraperApiKey = process.env.SCRAPER_API_KEY;
   if (scraperApiKey) {
     services.push({
       name: 'ScraperAPI',
-      buildUrl: () => `https://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=it`,
+      buildUrl: (render) =>
+        `https://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&country_code=it${render ? '&render=true' : ''}`,
     });
   }
-
-  // Scrape.do: free tier - https://scrape.do
   const scrapeDoToken = process.env.SCRAPE_DO_TOKEN;
   if (scrapeDoToken) {
     services.push({
       name: 'Scrape.do',
-      buildUrl: () => `https://api.scrape.do/?token=${scrapeDoToken}&url=${encodeURIComponent(url)}&render=true&super=true`,
+      buildUrl: (render) =>
+        `https://api.scrape.do/?token=${scrapeDoToken}&url=${encodeURIComponent(url)}${render ? '&render=true&super=true' : ''}`,
     });
   }
 
   if (services.length === 0) {
-    console.log('[fetchWithScrapingService] Nessuna API key configurata (SCRAPER_API_KEY o SCRAPE_DO_TOKEN)');
+    console.log('[fetchWithScrapingService] Nessuna API key (SCRAPER_API_KEY o SCRAPE_DO_TOKEN)');
     return null;
   }
 
   for (const service of services) {
-    // Retry fino a 3 volte per errori temporanei (500, timeout)
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (const render of [false, true]) {
+      const mode = render ? 'render=true (JS)' : 'render=false (veloce)';
+      const timeoutMs = render ? 42000 : 20000;
       try {
-        console.log(`[fetchWithScrapingService] Provo ${service.name} (tentativo ${attempt}/3)...`);
-        const serviceUrl = service.buildUrl();
-
-      const html = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Timeout 60s')), 60000);
-        const protocol = serviceUrl.startsWith('https') ? https : http;
-
-        const req = protocol.get(serviceUrl, {
-          headers: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'it-IT,it;q=0.9',
-          },
-        }, (res) => {
-          if (res.statusCode !== 200) {
-            clearTimeout(timer);
-            reject(new Error(`HTTP ${res.statusCode}`));
-            return;
-          }
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => {
-            clearTimeout(timer);
-            resolve(data);
-          });
-          res.on('error', (err) => {
-            clearTimeout(timer);
-            reject(err);
-          });
-        });
-        req.on('error', (err) => {
-          clearTimeout(timer);
-          reject(err);
-        });
-      });
-
-      const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-
-      const blockPatterns = ['Access Denied', '403 Forbidden', 'Just a moment', 'Bot detected', 'captcha', 'errors.edgesuite.net'];
-      const isBlocked = text.length < 100 || blockPatterns.some(p => text.includes(p));
-
-      if (!isBlocked) {
-        console.log(`[fetchWithScrapingService] ${service.name} OK! ${text.length} char`);
-        return { html, text };
-      }
-      console.log(`[fetchWithScrapingService] ${service.name} bloccato (${text.length} char)`);
-      break; // Bloccato = non ritentare, passa al servizio successivo
-    } catch (e) {
-      console.log(`[fetchWithScrapingService] ${service.name} errore tentativo ${attempt}: ${e.message}`);
-      if (attempt < 3) {
-        const waitMs = attempt * 3000; // 3s, 6s
-        console.log(`[fetchWithScrapingService] Attendo ${waitMs / 1000}s prima di riprovare...`);
-        await new Promise(resolve => setTimeout(resolve, waitMs));
+        const apiUrl = service.buildUrl(render);
+        console.log(`[fetchWithScrapingService] ${service.name} ${mode}, timeout ${timeoutMs}ms`);
+        const html = await fetchScraperProxyHtml(apiUrl, timeoutMs);
+        const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const isBlocked = text.length < 100 || blockPatterns.some((p) => text.includes(p));
+        if (!isBlocked) {
+          console.log(`[fetchWithScrapingService] ${service.name} OK ${text.length} char (${mode})`);
+          return { html, text };
+        }
+        console.log(`[fetchWithScrapingService] ${service.name} risposta bloccata/vuota (${text.length} char) ${mode}`);
+      } catch (e) {
+        console.log(`[fetchWithScrapingService] ${service.name} ${mode}: ${e.message}`);
       }
     }
-    } // fine retry loop
   }
   return null;
 }
@@ -1724,23 +1748,6 @@ async function fetchWithBrowser(url) {
   }
 }
 
-/**
- * True se il testo sembra una schedina reale (non solo home/cookie wall Sportium).
- * ScraperAPI spesso restituisce HTML lungo ma solo titolo sito: senza "vs" e metadati giocata.
- */
-function pageTextLooksLikeSportiumTicket(text) {
-  if (!text || text.length < 80) return false;
-  const t = text.replace(/\s+/g, ' ');
-  const hasMatchLine =
-    /[a-zà-ú0-9][a-zà-ú0-9\s.'-]{1,45}\s+vs\.?\s+[a-zà-ú0-9][a-zà-ú0-9\s.'-]{1,45}/i.test(t) ||
-    (/[a-zà-ú0-9][a-zà-ú0-9\s.'-]{2,}\s+[-–]\s+[a-zà-ú0-9][a-zà-ú0-9\s.'-]{2,}/i.test(t) &&
-      !/\b(login|registrati|cookie policy|benvenut)\b/i.test(t));
-  const hasQuotaOrGiocata =
-    /\d+[.,]\d{2}/.test(t) &&
-    /\b(giocata|quota|importo|aams|adm|venduto|scommess|vincita\s*potenziale)\b/i.test(t);
-  return Boolean(hasMatchLine && hasQuotaOrGiocata);
-}
-
 // Import ticket da URL (link condivisione Sportium o altri)
 router.post('/import-url', auth, async (req, res) => {
   try {
@@ -1776,45 +1783,55 @@ router.post('/import-url', auth, async (req, res) => {
       html = clientHtml;
       text = clientHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
-      // Strategia 1: Scraping API con proxy residenziali (la più efficace)
-      console.log(`[Import URL] Strategia 1 - Scraping API (proxy residenziali): ${url}`);
-      const scrapingResult = await fetchWithScrapingService(url);
-      if (scrapingResult && scrapingResult.text.length > 100) {
-        console.log(`[Import URL] Scraping API OK! ${scrapingResult.text.length} caratteri`);
-        html = scrapingResult.html;
-        text = scrapingResult.text;
-      }
+      const setFetchResult = (r) => {
+        if (r && r.html && r.text) {
+          html = r.html;
+          text = r.text;
+        }
+      };
+      const hasTicketInText = (t) => t && pageTextLooksLikeSportiumTicket(t);
 
-      // Strategia 2: CycleTLS — simula TLS fingerprint (JA3) di Chrome reale
-      if (!text || text.length < 100) {
-        console.log(`[Import URL] Strategia 2 - CycleTLS (JA3 Chrome)...`);
-        const cycleTLSResult = await fetchWithCycleTLS(url);
-        if (cycleTLSResult && cycleTLSResult.text.length > 100) {
-          console.log(`[Import URL] CycleTLS OK! ${cycleTLSResult.text.length} caratteri`);
-          html = cycleTLSResult.html;
-          text = cycleTLSResult.text;
+      // 1) CycleTLS — spesso 2–8s, stesso fingerprint browser (evita 1–2 min di ScraperAPI)
+      console.log(`[Import URL] Fase 1 - CycleTLS (veloce): ${url}`);
+      const cycleTLSResult = await fetchWithCycleTLS(url);
+      if (cycleTLSResult && cycleTLSResult.text.length > 100) {
+        setFetchResult(cycleTLSResult);
+        if (hasTicketInText(text)) {
+          console.log(`[Import URL] CycleTLS: dati ticket OK (${text.length} char), salto ScraperAPI`);
+        } else {
+          console.log(`[Import URL] CycleTLS: ${text.length} char ma senza schedina (shell?), continuo...`);
         }
       }
 
-      // Strategia 3: curl diretto (per siti senza protezione Akamai)
-      if (!text || text.length < 100) {
-        console.log(`[Import URL] Strategia 3 - curl diretto...`);
+      // 2) curl — leggero se il sito non blocca
+      if (!hasTicketInText(text)) {
+        console.log(`[Import URL] Fase 2 - curl`);
         const curlResult = fetchWithCurl(url);
         if (curlResult && curlResult.html && !curlResult.text.includes('Access Denied') && curlResult.text.length > 100) {
-          console.log(`[Import URL] curl OK, ${curlResult.text.length} caratteri`);
-          html = curlResult.html;
-          text = curlResult.text;
+          setFetchResult(curlResult);
+          if (hasTicketInText(text)) {
+            console.log(`[Import URL] curl: dati ticket OK (${text.length} char)`);
+          }
         }
       }
 
-      // Strategia 4: Puppeteer con stealth (browser headless)
+      // 3) ScraperAPI: render=false (~20s max) poi render=true (~42s max), senza retry tripli su 500
+      if (!hasTicketInText(text)) {
+        console.log(`[Import URL] Fase 3 - ScraperAPI (proxy, render=false → render=true)`);
+        const scrapingResult = await fetchWithScrapingService(url);
+        if (scrapingResult && scrapingResult.text.length > 100) {
+          setFetchResult(scrapingResult);
+          console.log(`[Import URL] ScraperAPI: ${text.length} caratteri`);
+        }
+      }
+
+      // 4) Puppeteer solo se il testo è ancora assente o troppo corto
       if (!text || text.length < 100) {
-        console.log(`[Import URL] Strategia 4 - Puppeteer headless...`);
+        console.log(`[Import URL] Fase 4 - Puppeteer (fallback testo corto)`);
         try {
           const result = await fetchWithBrowser(url);
           if (result && result.text && result.text.length > 100) {
-            html = result.html;
-            text = result.text;
+            setFetchResult(result);
           }
         } catch (browserErr) {
           console.error('Errore Puppeteer:', browserErr.message);
