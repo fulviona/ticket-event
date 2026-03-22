@@ -12,6 +12,7 @@ import AdminEvents from './pages/AdminEvents';
 import AdminAnalytics from './pages/AdminAnalytics';
 import Bacheca from './pages/Bacheca';
 import CookieBanner from './components/CookieBanner';
+import AppFooter from './components/AppFooter';
 import './App.css';
 
 function App() {
@@ -87,7 +88,7 @@ function App() {
           </div>
         </nav>
 
-        <main className="main-content">
+        <main className="main-content main-content--grow">
           <Routes>
             <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/" />} />
             <Route path="/register" element={!user ? <Register setUser={setUser} /> : <Navigate to="/" />} />
@@ -101,6 +102,7 @@ function App() {
             <Route path="/admin/events" element={user?.role === 'admin' ? <AdminEvents /> : <Navigate to="/" />} />
           </Routes>
         </main>
+        <AppFooter />
       </div>
     </Router>
   );

@@ -1,8 +1,9 @@
 {
   "name": "ticket-event",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Ticket Event - webapp scommesse sportive",
   "scripts": {
+    "bump": "node scripts/bump-version.js",
     "install-all": "cd backend && npm install && cd ../frontend && npm install",
     "build": "cd frontend && npm run build",
     "start": "cd backend && node src/server.js",

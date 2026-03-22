@@ -25,7 +25,10 @@ app.use('/api/events', require('./routes/events'));
 app.use('/api/analytics', require('./routes/analytics'));
 
 // Health check
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+const pkg = require('../package.json');
+app.get('/api/health', (req, res) =>
+  res.json({ status: 'ok', backendVersion: pkg.version })
+);
 
 // Setup admin (one-time use, remove after first admin is created)
 app.post('/api/setup-admin', async (req, res) => {

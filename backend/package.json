@@ -1,6 +1,6 @@
 {
   "name": "ticket-event-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backend for Ticket Event - betting ticket tracker",
   "main": "src/server.js",
   "scripts": {
