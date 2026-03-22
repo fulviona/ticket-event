@@ -316,6 +316,12 @@ function Home({ user }) {
 
   return (
     <div>
+      {importingUrl && (
+        <div className="import-loading-overlay">
+          <div className="import-spinner"></div>
+          <div className="import-loading-text">Importazione in corso...<br/>Potrebbe richiedere qualche secondo</div>
+        </div>
+      )}
       <div className="upload-section">
         <h2>Carica il tuo Ticket</h2>
         <p style={{ color: '#78909c', marginBottom: '1rem' }}>
