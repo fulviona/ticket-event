@@ -1246,6 +1246,17 @@ function pageTextLooksLikeSportiumTicket(text) {
   return Boolean(hasMatchLine && hasQuotaOrGiocata);
 }
 
+/** Akamai / WAF: pagina di blocco (tipico su Puppeteer da datacenter come Render). */
+function pageTextIsAkamaiOrAccessDenied(text) {
+  if (!text || text.length < 20) return false;
+  return (
+    /Access Denied/i.test(text) ||
+    /errors\.edgesuite\.net/i.test(text) ||
+    /don'?t have permission to access/i.test(text) ||
+    /Reference\s*#\s*[\d.]+/i.test(text)
+  );
+}
+
 /** Singola richiesta HTTP verso API ScraperAPI / Scrape.do (timeout rigido, niente retry). */
 function fetchScraperProxyHtml(apiUrl, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -1321,21 +1332,36 @@ async function fetchWithScrapingService(url) {
     return null;
   }
 
+  const ticketLikeUrl = /\/ticket\//i.test(url);
+
   for (const service of services) {
     for (const render of [false, true]) {
       const mode = render ? 'render=true (JS)' : 'render=false (veloce)';
-      const timeoutMs = render ? 42000 : 20000;
+      const timeoutMs = render ? 45000 : 20000;
       try {
         const apiUrl = service.buildUrl(render);
         console.log(`[fetchWithScrapingService] ${service.name} ${mode}, timeout ${timeoutMs}ms`);
         const html = await fetchScraperProxyHtml(apiUrl, timeoutMs);
         const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         const isBlocked = text.length < 100 || blockPatterns.some((p) => text.includes(p));
-        if (!isBlocked) {
-          console.log(`[fetchWithScrapingService] ${service.name} OK ${text.length} char (${mode})`);
-          return { html, text };
+        if (isBlocked) {
+          console.log(`[fetchWithScrapingService] ${service.name} risposta bloccata/vuota (${text.length} char) ${mode}`);
+          continue;
         }
-        console.log(`[fetchWithScrapingService] ${service.name} risposta bloccata/vuota (${text.length} char) ${mode}`);
+        // BUGFIX: render=false spesso restituisce solo shell SPA (15k+ char) senza schedina → NON uscire prima di render=true
+        if (
+          !render &&
+          ticketLikeUrl &&
+          !pageTextLooksLikeSportiumTicket(text) &&
+          text.length > 400
+        ) {
+          console.log(
+            `[fetchWithScrapingService] ${service.name}: ${text.length} char senza dati schedina (${mode}) → provo render=true (JS)`,
+          );
+          continue;
+        }
+        console.log(`[fetchWithScrapingService] ${service.name} OK ${text.length} char (${mode})`);
+        return { html, text };
       } catch (e) {
         console.log(`[fetchWithScrapingService] ${service.name} ${mode}: ${e.message}`);
       }
@@ -1666,6 +1692,13 @@ async function fetchWithBrowser(url) {
     console.log('[fetchWithBrowser] Navigazione iniziale...');
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
+    let bodyText = await page.evaluate(() => document.body?.innerText || '');
+    if (pageTextIsAkamaiOrAccessDenied(bodyText)) {
+      console.log('[fetchWithBrowser] Access Denied / Akamai rilevato subito dopo il caricamento — salto attese (25s+) inutili');
+      const html = await page.content();
+      return { html, text: bodyText };
+    }
+
     // 2. Controlla se siamo su una challenge Cloudflare e aspetta che si risolva
     const maxWaitCF = 30000; // max 30 secondi per la challenge
     const startCF = Date.now();
@@ -1720,13 +1753,17 @@ async function fetchWithBrowser(url) {
             /giocata/i.test(text)
           );
         },
-        { timeout: 15000 }
+        { timeout: 10000 }
       );
       console.log('[fetchWithBrowser] Contenuto ticket rilevato!');
     } catch (e) {
       console.log('[fetchWithBrowser] Timeout attesa contenuto ticket, provo comunque...');
-      // Attesa extra con scroll per lazy loading
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      bodyText = await page.evaluate(() => document.body?.innerText || '');
+      if (pageTextIsAkamaiOrAccessDenied(bodyText)) {
+        const html = await page.content();
+        return { html, text: bodyText };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
 
     // 5. Scrolla per triggerare lazy content
