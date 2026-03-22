@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket, reparseTicket, importTicketUrl, importTicketText } from '../services/api';
 import { sanitizeTicketUrlInput } from '../utils/ticketUrl';
+import AdmTicketVerify from '../components/AdmTicketVerify';
 
 function Home({ user }) {
   const [tickets, setTickets] = useState([]);
@@ -335,6 +336,8 @@ function Home({ user }) {
             {ticket.potentialWin != null && <span style={{ color: '#66bb6a' }}>Vincita: <strong>{ticket.potentialWin.toFixed(2)}&euro;</strong></span>}
           </div>
         )}
+
+        <AdmTicketVerify ticketId={ticket.ticketId} />
       </div>
     );
   };

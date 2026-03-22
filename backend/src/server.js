@@ -66,4 +66,20 @@ if (process.env.NODE_ENV === 'production' && process.env.SERVE_FRONTEND === 'tru
 }
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server avviato sulla porta ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server avviato sulla porta ${PORT}`);
+  if (process.env.API_FOOTBALL_KEY && process.env.AUTO_SETTLEMENT_CRON !== 'false') {
+    try {
+      const cron = require('node-cron');
+      const { runAutoSettlementJob } = require('./services/autoSettlement');
+      cron.schedule(process.env.AUTO_SETTLEMENT_SCHEDULE || '*/20 * * * *', () => {
+        runAutoSettlementJob().catch((e) => console.error('[autoSettlement]', e.message));
+      });
+      console.log('[autoSettlement] Cron attivo (API-Football)');
+    } catch (e) {
+      console.warn('[autoSettlement] Cron non avviato:', e.message);
+    }
+  } else if (!process.env.API_FOOTBALL_KEY) {
+    console.log('[autoSettlement] Disattivato: impostare API_FOOTBALL_KEY per refertazione automatica calcio');
+  }
+});

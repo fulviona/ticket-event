@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getAllTickets, updateTicketStatus, editTicket, deleteTicket } from '../services/api';
+import { getAllTickets, updateTicketStatus, editTicket, deleteTicket, runAutoSettlement } from '../services/api';
+import AdmTicketVerify from '../components/AdmTicketVerify';
 
 function AdminTickets() {
   const [tickets, setTickets] = useState([]);
@@ -8,6 +9,7 @@ function AdminTickets() {
   const [editForm, setEditForm] = useState({});
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [settlementRunning, setSettlementRunning] = useState(false);
 
   useEffect(() => {
     loadTickets();
@@ -105,9 +107,42 @@ function AdminTickets() {
   const statusLabel = (s) => s === 'won' ? 'Vinto' : s === 'lost' ? 'Perso' : 'In attesa';
   const statusColor = (s) => s === 'won' ? '#4caf50' : s === 'lost' ? '#f44336' : '#ff9800';
 
+  const handleRunAutoSettlement = async () => {
+    setSettlementRunning(true);
+    try {
+      const res = await runAutoSettlement();
+      const r = res.data;
+      if (r.skipped) {
+        showMsg(r.message || 'Refertazione automatica non configurata.', true);
+      } else {
+        showMsg(
+          `Refertazione: ticket aggiornati ${r.ticketsUpdated || 0}, scommesse ${r.betsSettled || 0}.`,
+          false,
+        );
+      }
+      loadTickets();
+    } catch (err) {
+      showMsg(err.response?.data?.message || 'Errore refertazione.', true);
+    } finally {
+      setSettlementRunning(false);
+    }
+  };
+
   return (
     <div className="admin-page">
-      <h2>Gestione Ticket ({tickets.length})</h2>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+        <h2 style={{ margin: 0 }}>Gestione Ticket ({tickets.length})</h2>
+        <button
+          type="button"
+          className="btn-small"
+          style={{ background: '#37474f', color: '#b0bec5' }}
+          disabled={settlementRunning}
+          onClick={handleRunAutoSettlement}
+          title="Esegue subito un ciclo di refertazione calcio (API-Football). In produzione gira anche in cron."
+        >
+          {settlementRunning ? 'Refertazione…' : 'Refertazione auto (calcio)'}
+        </button>
+      </div>
 
       {message && <div className="success-msg">{message}</div>}
       {error && <div className="error-msg">{error}</div>}
@@ -214,6 +249,8 @@ function AdminTickets() {
                           </>
                         )}
                       </div>
+
+                      <AdmTicketVerify ticketId={ticket.ticketId} />
 
                       {/* Scommesse */}
                       <h5 style={{ color: '#b0bec5', marginBottom: '0.5rem' }}>Scommesse ({ticket.bets.length})</h5>

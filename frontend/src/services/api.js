@@ -46,6 +46,7 @@ export const deleteTicket = (id) => api.delete(`/tickets/${id}`);
 export const reparseTicket = (id) => api.patch(`/tickets/${id}/reparse`);
 export const importTicketUrl = (url, clientHtml) => api.post('/tickets/import-url', { url, clientHtml });
 export const importTicketText = (text, sourceUrl) => api.post('/tickets/import-text', { text, sourceUrl });
+export const runAutoSettlement = () => api.post('/tickets/admin/auto-settlement/run');
 
 // Events
 export const getEvents = () => api.get('/events');

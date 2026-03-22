@@ -12,6 +12,7 @@ const Ticket = require('../models/Ticket');
 const { auth } = require('../middleware/auth');
 const { pageTextLooksLikeSportiumTicket } = require('../utils/ticketPageText');
 const { fetchWithScrapingService } = require('../services/ticketImportFetch');
+const { syncPointsOnTicketStatusChange } = require('../utils/ticketPoints');
 
 puppeteer.use(StealthPlugin());
 
@@ -56,7 +57,11 @@ const BET_TYPES = [
   // Tiri in porta / Tiri totali
   { pattern: /\btiri?\s*(in\s*porta|totali|fuori)\b/i, type: 'Tiri' },
   { pattern: /\bshots?\s*on\s*target\b/i, type: 'Tiri' },
-  // Under/Over con soglia
+  // Under/Over solo 1° tempo (prima del U/O generico)
+  { pattern: /\b(under|over)\s*[\d.,]+\s*1[°º]?\s*t\b/i, type: 'Under/Over 1T' },
+  { pattern: /\bu\s*\/\s*o\s*[\d.,]+\s*1[°º]?\s*t\b/i, type: 'Under/Over 1T' },
+  { pattern: /\b(under|over)\s*1[°º]?\s*t\s*[\d.,]+/i, type: 'Under/Over 1T' },
+  // Under/Over con soglia (90' o generico)
   { pattern: /\b(under|over)\s*[\d.,]+/i, type: 'Under/Over' },
   { pattern: /\bu[\s/]*o\s*[\d.,]+/i, type: 'Under/Over' },
   // Goal/No Goal
@@ -77,14 +82,19 @@ const BET_TYPES = [
   { pattern: /\bah\s*[12]/i, type: 'Handicap' },
   // Risultato esatto
   { pattern: /\b(risultato\s*esatto|ris\.?\s*es(?:atto)?)\b/i, type: 'Risultato Esatto' },
-  // Parziale/Finale
+  // Parziale/Finale (HT/FT, intervallo/finale)
   { pattern: /\bparziale[\s/]*finale\b/i, type: 'Parziale/Finale' },
   { pattern: /\b1t[\s/]*2t\b/i, type: 'Parziale/Finale' },
-  { pattern: /\bprimo\s*tempo\b/i, type: 'Primo Tempo' },
-  { pattern: /\bsecondo\s*tempo\b/i, type: 'Secondo Tempo' },
-  // Combo
+  { pattern: /\bht\s*[\/\\]\s*ft\b/i, type: 'Parziale/Finale' },
+  { pattern: /\bintervallo\s*[\/\\]\s*finale\b/i, type: 'Parziale/Finale' },
+  { pattern: /\bint\s*\/\s*f\b/i, type: 'Parziale/Finale' },
+  // Combo esplicite (prima delle combo stile 1&3+)
   { pattern: /\b[12x]\s*[+-]?\s*(?:over|under)\b/i, type: 'Combo 1X2+U/O' },
   { pattern: /\b[12x]\s*[-+]\s*(?:goal|gol)\b/i, type: 'Combo 1X2+GG/NG' },
+  { pattern: /\b(?:doppia\s*chance|dc)\s*\+\s*(?:u\s*\/\s*o|under|over|multigol)/i, type: 'Combo' },
+  { pattern: /\b(?:multigol|u\s*\/\s*o)\s*[^.]{0,40}\s*\+\s*(?:1\s*x\s*2|esito)/i, type: 'Combo' },
+  { pattern: /\b[12x]\s*&\s*\d[\d\s\-+≥≤]*\d/i, type: 'Combo' },
+  { pattern: /\b(?:combo|combinata)\s*(?:\d|bet)/i, type: 'Combo' },
   // Somma Goal / Multigol
   { pattern: /\b(somma|totale)\s*gol/i, type: 'Somma Goal' },
   { pattern: /\bmulti\s*gol/i, type: 'Multigol' },
@@ -97,8 +107,9 @@ const BET_TYPES = [
   { pattern: /\b(supplementari|overtime|extra\s*time)\b/i, type: 'Supplementari' },
   // Possesso palla
   { pattern: /\bpossesso\b/i, type: 'Possesso' },
-  // Falli
+  // Falli (prima di "primo tempo" per evitare conflitti su testi tipo stat falli)
   { pattern: /\bfalli?\s*(commess|subit)/i, type: 'Falli' },
+  { pattern: /\bfalli?\s+\d+/i, type: 'Falli' },
   // Rigore
   { pattern: /\brigore\b/i, type: 'Rigore' },
   // Fuorigioco
@@ -111,6 +122,16 @@ const BET_TYPES = [
   { pattern: /\bautorete\b/i, type: 'Autorete' },
   // Squadra primo gol
   { pattern: /\bsquadra\s*(1|primo|1°)\s*gol/i, type: 'Squadra Primo Gol' },
+  // Porta inviolata / clean sheet
+  { pattern: /\b(porta\s*inviolata|clean\s*sheet|porte\s*inviolat|zero\s*gol\s*subit)/i, type: 'Porta inviolata' },
+  // Testa a testa / vincente (mercati speciali)
+  { pattern: /\btesta\s*a\s*testa|head\s*to\s*head\b/i, type: 'Testa a testa' },
+  { pattern: /\bhat[\s-]*trick|tripletta\b/i, type: 'Marcatore' },
+  // Primo / secondo tempo (dopo mercati che contengono "tempo" in altri contesti)
+  { pattern: /\b(?:esito|1\s*x\s*2)\s*1[°º]?\s*t\b/i, type: 'Primo Tempo' },
+  { pattern: /\b1\s*x\s*2\s*primo\s*tempo\b/i, type: 'Primo Tempo' },
+  { pattern: /\bprimo\s*tempo\b/i, type: 'Primo Tempo' },
+  { pattern: /\bsecondo\s*tempo\b/i, type: 'Secondo Tempo' },
 ];
 
 function detectBetType(text) {
@@ -146,6 +167,16 @@ const SETTLEMENT_RULES = {
   'Falli': 'Falli commessi dal giocatore. Solo quelli per cui l\'arbitro fischia fallo (vantaggio NON conta). Dati OPTA.',
   'Fuorigioco': 'Fuorigioco fischiati dall\'arbitro. Dati ufficiali della competizione.',
   'Squadra Primo Gol': 'Quale squadra segna il primo gol nella partita. Se 0-0: tutte le scommesse perdenti.',
+  'Primo Tempo': 'Mercati riferiti solo al primo tempo (45\'+recupero). Variano: 1X2, U/O gol, GG/NG, ecc. — verificare regolamento sul book.',
+  'Secondo Tempo': 'Stesso concetto solo per la ripresa (escluso 1° tempo).',
+  'Under/Over 1T': 'Under/Over sui gol segnati nel solo primo tempo.',
+  'Draw No Bet': 'In caso di pareggio la giocata è rimborsata (importo). Vince solo la squadra indicata.',
+  'Possesso': 'Percentuale possesso palla a fine gara: dati ufficiali della competizione.',
+  'Rimessa': 'Numero rimesse laterali (mercato raro).',
+  'Supplementari': 'Si applicano solo se il mercato è esplicitamente su tempi supplementari / extra time.',
+  'Porta inviolata': 'La squadra scelta non deve subire gol nei 90\'+recupero (0 gol subiti).',
+  'Combo': 'Più condizioni nello stesso evento (es. 1&3+, DC+U/O, multigol+1X2). Tutte le condizioni devono verificarsi salvo regole speciali sul book.',
+  'Testa a testa': 'Confronto tra due giocatori (gol, assist, ecc.): vince chi ottiene il miglior risultato secondo criteri ufficiali.',
 };
 
 function getSettlementInfo(betType, prediction) {
@@ -2084,6 +2115,20 @@ router.get('/all', auth, async (req, res) => {
   }
 });
 
+// Admin: esegue un ciclo di refertazione automatica (API-Football)
+router.post('/admin/auto-settlement/run', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Accesso riservato.' });
+    }
+    const { runAutoSettlementJob } = require('../services/autoSettlement');
+    const result = await runAutoSettlementJob();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: err.message || 'Errore del server.' });
+  }
+});
+
 // Admin: aggiorna ticket (bets, stake, potentialWin, totalOdds, status)
 router.patch('/:id/edit', auth, async (req, res) => {
   try {
@@ -2103,12 +2148,7 @@ router.patch('/:id/edit', auth, async (req, res) => {
     if (status && ['pending', 'won', 'lost'].includes(status)) {
       const previousStatus = ticket.status;
       ticket.status = status;
-      const User = require('../models/User');
-      if (status === 'won' && previousStatus !== 'won') {
-        await User.findByIdAndUpdate(ticket.user, { $inc: { points: 1 } });
-      } else if (previousStatus === 'won' && status !== 'won') {
-        await User.findByIdAndUpdate(ticket.user, { $inc: { points: -1 } });
-      }
+      await syncPointsOnTicketStatusChange(ticket.user, previousStatus, status);
     }
 
     await ticket.save();
@@ -2139,13 +2179,7 @@ router.patch('/:id/status', auth, async (req, res) => {
     ticket.status = status;
     await ticket.save();
 
-    // Aggiorna punti utente
-    const User = require('../models/User');
-    if (status === 'won' && previousStatus !== 'won') {
-      await User.findByIdAndUpdate(ticket.user, { $inc: { points: 1 } });
-    } else if (previousStatus === 'won' && status !== 'won') {
-      await User.findByIdAndUpdate(ticket.user, { $inc: { points: -1 } });
-    }
+    await syncPointsOnTicketStatusChange(ticket.user, previousStatus, status);
 
     res.json({ message: 'Stato aggiornato.', ticket });
   } catch (err) {
