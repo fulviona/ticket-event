@@ -87,9 +87,13 @@ function Home({ user }) {
       setTicketUrl('');
       loadTickets();
     } catch (err) {
-      if (err.response?.status === 403 && err.response?.data?.needsClientFetch) {
+      const needsPaste = err.response?.data?.needsClientFetch;
+      if ((err.response?.status === 403 || err.response?.status === 422) && needsPaste) {
         setShowPasteBox(true);
-        setError('Tutti i metodi automatici sono falliti. Apri il link, copia il testo e incollalo qui sotto.');
+        setError(
+          err.response?.data?.message ||
+            'Apri il ticket nel browser, copia tutto il testo della pagina e incollalo qui sotto.',
+        );
       } else {
         const issues = err.response?.data?.issues;
         if (issues && issues.length > 0) {

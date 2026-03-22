@@ -1724,6 +1724,23 @@ async function fetchWithBrowser(url) {
   }
 }
 
+/**
+ * True se il testo sembra una schedina reale (non solo home/cookie wall Sportium).
+ * ScraperAPI spesso restituisce HTML lungo ma solo titolo sito: senza "vs" e metadati giocata.
+ */
+function pageTextLooksLikeSportiumTicket(text) {
+  if (!text || text.length < 80) return false;
+  const t = text.replace(/\s+/g, ' ');
+  const hasMatchLine =
+    /[a-zà-ú0-9][a-zà-ú0-9\s.'-]{1,45}\s+vs\.?\s+[a-zà-ú0-9][a-zà-ú0-9\s.'-]{1,45}/i.test(t) ||
+    (/[a-zà-ú0-9][a-zà-ú0-9\s.'-]{2,}\s+[-–]\s+[a-zà-ú0-9][a-zà-ú0-9\s.'-]{2,}/i.test(t) &&
+      !/\b(login|registrati|cookie policy|benvenut)\b/i.test(t));
+  const hasQuotaOrGiocata =
+    /\d+[.,]\d{2}/.test(t) &&
+    /\b(giocata|quota|importo|aams|adm|venduto|scommess|vincita\s*potenziale)\b/i.test(t);
+  return Boolean(hasMatchLine && hasQuotaOrGiocata);
+}
+
 // Import ticket da URL (link condivisione Sportium o altri)
 router.post('/import-url', auth, async (req, res) => {
   try {
@@ -1816,9 +1833,37 @@ router.post('/import-url', auth, async (req, res) => {
       }
     }
 
+    // ScraperAPI/CycleTLS possono restituire HTML lungo ma solo la shell (titolo sito): nessun "vs" né giocata.
+    if (!clientHtml && html && text && !pageTextLooksLikeSportiumTicket(text)) {
+      console.log('[Import URL] Testo senza dati schedina (probabile SPA), secondo tentativo con Puppeteer...');
+      try {
+        const br = await fetchWithBrowser(url);
+        if (br?.text && pageTextLooksLikeSportiumTicket(br.text)) {
+          html = br.html;
+          text = br.text;
+          console.log('[Import URL] Puppeteer ha recuperato il contenuto della giocata.');
+        }
+      } catch (e) {
+        console.warn('[Import URL] Puppeteer dopo shell:', e.message);
+      }
+    }
+
     if (!html || (!text || text.trim().length < 50)) {
       return res.status(400).json({
         message: 'La pagina non contiene dati del ticket. Verifica che il link sia corretto.',
+      });
+    }
+
+    if (!pageTextLooksLikeSportiumTicket(text)) {
+      console.log('[Import URL] Ancora nessun contenuto riconoscibile come ticket (primi caratteri):', text.substring(0, 200));
+      return res.status(422).json({
+        message:
+          'Il link non ha restituito i dettagli della schedina (solo la pagina generica del sito). Sportium carica il ticket nel browser.',
+        issues: [
+          'Apri il ticket nel browser, seleziona tutto il testo della pagina e usalo con la funzione di incolla testo.',
+          'Oppure verifica che il link sia completo (es. da Condividi sul ticket).',
+        ],
+        needsClientFetch: true,
       });
     }
 
