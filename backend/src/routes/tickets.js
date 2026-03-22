@@ -293,8 +293,11 @@ function extractPlayedAt(text) {
 // ===== Classificazione righe OCR =====
 
 // Riga di intestazione evento: "19/03/2026 21:00 - Calcio - Europa League"
+// Sportium format: "21/03/2026 15:00 - - ITALIA - I DIVISIONE" (sport vuoto, double dash)
 function parseEventHeader(line) {
-  const m = line.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\s+(\d{1,2})[:.]\s*(\d{2})\s*[-–]\s*([A-Za-zÀ-ú\s]+?)\s*[-–]\s*(.+)$/i);
+  // Normalizza doppio trattino "- -" → "- "
+  const normalized = line.replace(/[-–]\s*[-–]/g, '-');
+  const m = normalized.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\s+(\d{1,2})[:.]\s*(\d{2})\s*[-–]\s*([A-Za-zÀ-ú\s]*?)\s*[-–]\s*(.+)$/i);
   if (m) {
     const [, day, month, year, hour, min, sport, competition] = m;
     const fullYear = year.length === 2 ? '20' + year : year;
@@ -305,7 +308,7 @@ function parseEventHeader(line) {
     };
   }
   // Variante senza orario o con formato diverso
-  const m2 = line.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4}).*[-–]\s*([A-Za-zÀ-ú\s]+?)\s*[-–]\s*(.+)$/i);
+  const m2 = normalized.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4}).*[-–]\s*([A-Za-zÀ-ú\s]*?)\s*[-–]\s*(.+)$/i);
   if (m2) {
     const [, day, month, year, sport, competition] = m2;
     const fullYear = year.length === 2 ? '20' + year : year;
@@ -313,6 +316,18 @@ function parseEventHeader(line) {
       eventDate: new Date(fullYear, month - 1, day),
       sport: sport.trim(),
       competition: competition.trim(),
+    };
+  }
+  // Variante Sportium senza sport/competizione: solo data/ora
+  const m3 = line.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\s+(\d{1,2})[:.]\s*(\d{2})\s*[-–]/i);
+  if (m3) {
+    const [, day, month, year, hour, min] = m3;
+    const fullYear = year.length === 2 ? '20' + year : year;
+    const rest = line.substring(m3[0].length).trim().replace(/^[-–\s]+/, '');
+    return {
+      eventDate: new Date(fullYear, month - 1, day, hour, min),
+      sport: '',
+      competition: rest || '',
     };
   }
   return null;
@@ -393,14 +408,24 @@ function parseBetLine(line) {
     const textBeforeOdds = normalized.substring(0, oddsIdx).trim();
 
     // 2. Cerca la selezione subito prima della quota
-    for (const tokenRe of SELECTION_TOKENS) {
-      // Costruisci pattern che matcha il token alla fine del testo prima della quota
-      const fullRe = new RegExp('\\b(' + tokenRe.source + ')\\s*$', 'i');
-      const selMatch = textBeforeOdds.match(fullRe);
-      if (selMatch) {
-        selection = selMatch[1].toUpperCase().replace('SÌ', 'SI').replace(/\s+/g, ' ').trim();
-        odds = oddsValue;
-        break;
+    // NON estrarre selezione se è parte del nome del tipo scommessa (es: "1X2" in "ESITO FINALE 1X2")
+    const betTypeSuffix = /\b1\s*X\s*2\s*$/i.test(textBeforeOdds) ||
+      /\bGOAL\s*\/\s*NO\s*GOAL\s*$/i.test(textBeforeOdds) ||
+      /\bUNDER\s*\/\s*OVER\s*[\d.,]*\s*$/i.test(textBeforeOdds) ||
+      /\bDOPPIA\s*CHANCE\s*$/i.test(textBeforeOdds) ||
+      /\bRISULTATO\s*ESATTO\s*$/i.test(textBeforeOdds) ||
+      /\bPARZIALE\s*\/?\s*FINALE\s*$/i.test(textBeforeOdds);
+
+    if (!betTypeSuffix) {
+      for (const tokenRe of SELECTION_TOKENS) {
+        // Costruisci pattern che matcha il token alla fine del testo prima della quota
+        const fullRe = new RegExp('\\b(' + tokenRe.source + ')\\s*$', 'i');
+        const selMatch = textBeforeOdds.match(fullRe);
+        if (selMatch) {
+          selection = selMatch[1].toUpperCase().replace('SÌ', 'SI').replace(/\s+/g, ' ').trim();
+          odds = oddsValue;
+          break;
+        }
       }
     }
 
@@ -498,6 +523,7 @@ function preprocessPastedText(text) {
   let lines = text.split('\n');
 
   // Fase 1: Unisci "Team1 \n vs \n Team2" o "Team1 \n vs Team2" in una sola riga
+  // e unisci punteggio "(0:2)" con la riga match precedente
   const merged = [];
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
@@ -523,13 +549,18 @@ function preprocessPastedText(text) {
       const prev = merged.pop();
       merged.push(prev + ' ' + trimmed);
     }
+    // Caso 4: la riga è un punteggio tipo "(0:2)" o "(3:3)" → unisci con la riga precedente
+    else if (/^\(\d+[:.]\d+\)\s*$/.test(trimmed) && merged.length > 0) {
+      const prev = merged.pop();
+      merged.push(prev + ' ' + trimmed);
+    }
     else {
       merged.push(trimmed);
     }
   }
 
   // Fase 2: Filtra righe di rumore (metadata, UI elements, testo sito)
-  const NOISE_RE = /^\s*(sport|live|casin[oò]|casin[oò]\s*live|poker|altri\s*giochi|promozioni\s*\d*|stato\s*:\s*\w+|giocata\s*$|venduto|stampa|carica\s*stampa|condividi\s*cashout|condividicashout|stampa\s*condividi\s*cashout|stampacondividicashout|condividi|cashout|importo\s*bonus|vincita\s*potenziale|giocata\s*del\s*:|login\s*registrati|casin[oò]\s*casin[oò]|sportium\s*[-–]|probabilit[aà]\s*di\s*vincita|il\s*gioco\s*[eè]\s*vietato|gioca\s*con\s*moderazione|cookie\s*(?:policy|manage)|carica\s*stampa|informativa\s*premi|rifiuta\s*accetta|rifiutaaccetta|scopri\s*di\s*pi[uù])\s*$/i;
+  const NOISE_RE = /^\s*(sport|live|casin[oò]|casin[oò]\s*live|poker|altri\s*giochi|promozioni\s*\d*|stato\s*:\s*.+|giocata\s*$|venduto|stampa|carica\s*stampa|condividi\s*cashout|condividicashout|stampa\s*condividi\s*cashout|stampacondividicashout|condividi|cashout|importo\s*bonus|vincita\s*potenziale|giocata\s*del\s*:|login\s*registrati|casin[oò]\s*casin[oò]|sportium\s*[-–].*|probabilit[aà]\s*di\s*vincita|il\s*gioco\s*[eè]\s*vietato|gioca\s*con\s*moderazione|cookie\s*(?:policy|manage)|carica\s*stampa|informativa\s*premi|rifiuta\s*accetta|rifiutaaccetta|scopri\s*di\s*pi[uù]|singola|multipla|sistema)\s*$/i;
   const filtered = merged.filter((l) => {
     const t = l.trim();
     if (!t) return false;
@@ -923,28 +954,91 @@ async function parseSportiumHtml(html, url) {
   const parsedBets = parseBets(text);
 
   // Post-processing: cerca selezioni mancanti nell'HTML originale
-  // Sportium a volte rende la selezione (1, 2) come bottone/elemento visivo
-  // che non appare nel testo estratto
+  // Sportium rende 1X2 come bottoni/elementi visivi: il testo estratto mostra solo la quota,
+  // non quale bottone (1, X, 2) è selezionato. Serve cercare nell'HTML grezzo.
   if (parsedBets.length > 0) {
     for (const bet of parsedBets) {
       if (!bet.selection && bet.odds && bet.match && bet.match !== 'Scommessa') {
-        // Cerca nell'HTML: pattern tipo "selection_name">1</span> o "active">1<" vicino al match
-        const matchEscaped = bet.match.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+vs\s+/i, '[\\s\\S]{0,200}');
-        // Cerca la selezione numerica (1, 2) o X vicino al match e alla quota nell'HTML
         const oddsStr = bet.odds.toFixed(2).replace('.', '[.,]');
-        // Pattern: match ... selezione ... quota (nell'HTML grezzo)
-        const selPatterns = [
-          new RegExp(matchEscaped + '[\\s\\S]{0,500}?[>"\']\\s*([1X2])\\s*[<"\'][\\s\\S]{0,200}?' + oddsStr, 'i'),
-          new RegExp(matchEscaped + '[\\s\\S]{0,500}?selected[\\s\\S]{0,100}?>\\s*([1X2])\\s*<', 'i'),
-          new RegExp(matchEscaped + '[\\s\\S]{0,500}?active[\\s\\S]{0,100}?>\\s*([1X2])\\s*<', 'i'),
+        // Strategia 1: cerca nell'HTML la selezione vicino alla quota specifica
+        // Pattern: >SELEZIONE<...>QUOTA< con distanza limitata (la selezione è subito prima della quota)
+        const selBeforeOddsPatterns = [
+          // Selezione in un tag seguito dalla quota in un altro tag vicino
+          new RegExp('>\\s*([1X2])\\s*<[^>]*>[\\s\\S]{0,150}?' + oddsStr, 'i'),
+          // Selezione con classe active/selected
+          new RegExp('(?:active|selected|highlight|chosen)[^>]*>\\s*([1X2])\\s*<', 'gi'),
+          // Selezione e quota nella stessa riga HTML
+          new RegExp('([1X2])\\s*</[^>]+>\\s*<[^>]+>\\s*' + oddsStr, 'i'),
         ];
-        for (const pat of selPatterns) {
-          const m = cleanHtml.match(pat);
-          if (m) {
-            bet.selection = m[1].toUpperCase();
-            console.log(`[parseSportiumHtml] Selezione "${bet.selection}" estratta da HTML per ${bet.match}`);
-            break;
+
+        // Trova la posizione della quota nell'HTML. Per disambiguare se la stessa quota
+        // appare più volte, cerchiamo vicino al nome del match
+        const oddsDot = oddsStr.replace('[.,]', '.');
+        const oddsComma = oddsStr.replace('[.,]', ',');
+        const team1 = bet.match.split(/\s+vs\s+/i)[0]?.trim();
+        const team1HtmlIdx = team1 ? cleanHtml.indexOf(team1) : -1;
+        let oddsIdx = -1;
+        // Cerca la quota dopo il team1 nel HTML
+        if (team1HtmlIdx >= 0) {
+          const afterTeam = cleanHtml.indexOf(oddsDot, team1HtmlIdx);
+          if (afterTeam >= 0) { oddsIdx = afterTeam; }
+          else {
+            const afterTeamComma = cleanHtml.indexOf(oddsComma, team1HtmlIdx);
+            if (afterTeamComma >= 0) oddsIdx = afterTeamComma;
           }
+        }
+        if (oddsIdx < 0) {
+          oddsIdx = cleanHtml.indexOf(oddsDot) !== -1
+            ? cleanHtml.indexOf(oddsDot)
+            : cleanHtml.indexOf(oddsComma);
+        }
+
+        // Cerca prima con active/selected (più affidabile)
+        const activeRe = /(?:active|selected|highlight|chosen|pick)[^>]{0,50}>\s*([1X2])\s*</gi;
+        let activeMatch;
+        let bestActive = null;
+        while ((activeMatch = activeRe.exec(cleanHtml)) !== null) {
+          // Prendi il match attivo più vicino (e precedente) alla quota
+          if (oddsIdx > 0 && activeMatch.index < oddsIdx && activeMatch.index > oddsIdx - 2000) {
+            bestActive = activeMatch;
+          }
+        }
+        if (bestActive) {
+          bet.selection = bestActive[1].toUpperCase();
+          console.log(`[parseSportiumHtml] Selezione "${bet.selection}" (active) per ${bet.match}`);
+        } else {
+          // Fallback: cerca >1< >X< >2< vicino alla quota
+          for (const pat of selBeforeOddsPatterns) {
+            const m = cleanHtml.match(pat);
+            if (m) {
+              bet.selection = m[1].toUpperCase();
+              console.log(`[parseSportiumHtml] Selezione "${bet.selection}" (html) per ${bet.match}`);
+              break;
+            }
+          }
+        }
+
+        // Fallback: cerca nella porzione di HTML tra il match e la quota
+        if (!bet.selection) {
+          if (team1) {
+            const team1Idx = team1HtmlIdx >= 0 ? team1HtmlIdx : cleanHtml.indexOf(team1);
+            if (team1Idx >= 0 && oddsIdx > team1Idx) {
+              const betHtmlSection = cleanHtml.substring(team1Idx, oddsIdx + 20);
+              // Cerca l'ultima selezione >1<, >X< o >2< nella sezione
+              const allSelections = [...betHtmlSection.matchAll(/>\s*([1X2])\s*</g)];
+              if (allSelections.length > 0) {
+                // L'ultima selezione trovata è la più vicina alla quota
+                bet.selection = allSelections[allSelections.length - 1][1].toUpperCase();
+                console.log(`[parseSportiumHtml] Selezione "${bet.selection}" (section) per ${bet.match}`);
+              }
+            }
+          }
+        }
+
+        // Log HTML intorno alla quota per debug se selezione non trovata
+        if (!bet.selection && oddsIdx > 0) {
+          const htmlSnippet = cleanHtml.substring(Math.max(0, oddsIdx - 300), oddsIdx + 50);
+          console.log(`[parseSportiumHtml] Selezione NON trovata per ${bet.match} (odds=${bet.odds}). HTML vicino: ${htmlSnippet.substring(0, 300)}`);
         }
       }
     }
