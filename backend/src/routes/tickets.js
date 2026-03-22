@@ -412,6 +412,7 @@ function parseBetLine(line) {
     const betTypeSuffix = /\b1\s*X\s*2\s*$/i.test(textBeforeOdds) ||
       /\bGOAL\s*\/\s*NO\s*GOAL\s*$/i.test(textBeforeOdds) ||
       /\bUNDER\s*\/\s*OVER\s*[\d.,]*\s*$/i.test(textBeforeOdds) ||
+      /\bU\s*\/\s*O\s*[\d.,]*\s*$/i.test(textBeforeOdds) ||
       /\bDOPPIA\s*CHANCE\s*$/i.test(textBeforeOdds) ||
       /\bRISULTATO\s*ESATTO\s*$/i.test(textBeforeOdds) ||
       /\bPARZIALE\s*\/?\s*FINALE\s*$/i.test(textBeforeOdds);
@@ -473,8 +474,11 @@ function parseBetLine(line) {
     player = player.replace(/\b\w+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
   }
 
-  // Determina il tipo di scommessa dalla descrizione
-  const betType = detectBetType(description);
+  // Determina il tipo di scommessa dalla descrizione (e dalla selezione se è solo OVER/UNDER)
+  let betType = detectBetType(description);
+  if (betType === 'N/D' && selection && /^(OVER|UNDER)$/i.test(selection.trim())) {
+    betType = 'Under/Over';
+  }
 
   return {
     prediction: description,
@@ -594,7 +598,7 @@ function parseBets(text) {
   const ODDS_ONLY_RE = /^\s*(\d+[.,]\d{1,2})\s*$/;
   const BET_LABEL_RE = /^\s*(cartellino|marcatore|risultato|ammonizione|espulsione|autogol|autorete|rigore|corner|tiri|assist|fallo|fuorigioco|parata|gol)\s*$/i;
   // Tipo scommessa Sportium: "ESITO FINALE 1X2", "GOAL/NO GOAL", "UNDER/OVER 2,5", etc.
-  const BET_TYPE_LINE_RE = /^\s*(ESITO\s+FINALE\s+1X2|RISULTATO\s+FINALE\s+1X2|GOAL\s*\/\s*NO\s*GOAL|UNDER\s*\/\s*OVER\s*[\d.,]*|DOPPIA\s+CHANCE|PARZIALE\s*\/?\s*FINALE|HANDICAP|MULTIGOL|COMBO\s+\w+|SOMMA\s+GOAL|MARCATORE|RIGORE|ESPULSIONE|CARTELLINI|AUTORETE|CORNER|ANGOLI|RISULTATO\s+ESATTO|PRIMO\s+TEMPO|SECONDO\s+TEMPO|SEGNA\s*GOL|VINCE\s*A\s*ZERO|DC\s*\/?\s*GNG|COMBO\s+SCOMMESSA|GOAL\/NO\s*GOAL)\s*$/i;
+  const BET_TYPE_LINE_RE = /^\s*(ESITO\s+FINALE\s+1X2|RISULTATO\s+FINALE\s+1X2|GOAL\s*\/\s*NO\s*GOAL|UNDER\s*\/\s*OVER\s*[\d.,]*|U\s*\/\s*O\s*[\d.,]*|DOPPIA\s+CHANCE|PARZIALE\s*\/?\s*FINALE|HANDICAP|MULTIGOL|COMBO\s+\w+|SOMMA\s+GOAL|MARCATORE|RIGORE|ESPULSIONE|CARTELLINI|AUTORETE|CORNER|ANGOLI|RISULTATO\s+ESATTO|PRIMO\s+TEMPO|SECONDO\s+TEMPO|SEGNA\s*GOL|VINCE\s*A\s*ZERO|DC\s*\/?\s*GNG|COMBO\s+SCOMMESSA|GOAL\/NO\s*GOAL)\s*$/i;
 
   const flushPendingBet = () => {
     if (pendingBetLines.length === 0) return;
@@ -802,9 +806,13 @@ function repairBets(bets, rawText) {
       }
     }
 
-    // 3. Ripara betType N/D: ri-rileva dal prediction
-    if ((!bet.betType || bet.betType === 'N/D') && bet.prediction) {
-      const detected = detectBetType(bet.prediction);
+    // 3. Ripara betType N/D: prediction + selection (testo Sportium spezza spesso "U/O 2.5" e "OVER")
+    if (!bet.betType || bet.betType === 'N/D') {
+      const combined = [bet.prediction, bet.selection].filter(Boolean).join(' ');
+      let detected = detectBetType(combined);
+      if ((!detected || detected === 'N/D') && bet.selection && /^(OVER|UNDER)$/i.test(String(bet.selection).trim())) {
+        detected = 'Under/Over';
+      }
       if (detected && detected !== 'N/D') {
         bet.betType = detected;
         console.log(`[repairBets] Riparato betType "${bet.betType}" per ${bet.match}`);
