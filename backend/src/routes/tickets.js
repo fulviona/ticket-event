@@ -1257,6 +1257,34 @@ function pageTextIsAkamaiOrAccessDenied(text) {
   );
 }
 
+/**
+ * Un solo URL https valido (fix incolla doppio "https https://...", due link concatenati, caratteri spurî).
+ */
+function normalizeTicketUrl(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const s = raw.trim().replace(/^https\s*:\s*\/\s*\/?\s*https:\/\//i, 'https://');
+  const matches = s.match(/https:\/\/[a-zA-Z0-9][a-zA-Z0-9./?#&=%_*:\-]*/gi);
+  if (!matches || matches.length === 0) {
+    try {
+      const u = new URL(s);
+      return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
+    } catch {
+      return null;
+    }
+  }
+  const cleaned = matches.map((m) => m.replace(/[^a-zA-Z0-9/:?#&=%._\-]+$/g, ''));
+  const withTicket = cleaned.find((u) => /\.it\//i.test(u) && /\/ticket\//i.test(u));
+  const itUrl = cleaned.find((u) => /\.it(?:\/|$)/i.test(u));
+  const chosen = withTicket || itUrl || cleaned[0];
+  try {
+    const u = new URL(chosen);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return u.href;
+  } catch {
+    return null;
+  }
+}
+
 /** Singola richiesta HTTP verso API ScraperAPI / Scrape.do (timeout rigido, niente retry). */
 function fetchScraperProxyHtml(apiUrl, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -1297,9 +1325,9 @@ function fetchScraperProxyHtml(apiUrl, timeoutMs) {
   });
 }
 
-// Strategia: Scraping API — prima render=false (pochi secondi), poi render=true solo se serve.
-// Niente 3 retry da 60s: su HTTP 500 si passa subito alla modalità successiva (evita ~2 min di attesa).
-async function fetchWithScrapingService(url) {
+// Scraping API (proxy residenziali). Per Sportium /ticket/ solo render=true (schedina JS), più stabile e meno chiamate.
+async function fetchWithScrapingService(url, options = {}) {
+  const { sportiumTicketPage = false } = options;
   const blockPatterns = [
     'Access Denied',
     '403 Forbidden',
@@ -1333,9 +1361,10 @@ async function fetchWithScrapingService(url) {
   }
 
   const ticketLikeUrl = /\/ticket\//i.test(url);
+  const renderModes = sportiumTicketPage ? [true] : [false, true];
 
   for (const service of services) {
-    for (const render of [false, true]) {
+    for (const render of renderModes) {
       const mode = render ? 'render=true (JS)' : 'render=false (veloce)';
       const timeoutMs = render ? 45000 : 20000;
       try {
@@ -1793,8 +1822,19 @@ router.post('/import-url', auth, async (req, res) => {
       return res.status(400).json({ message: 'Inserisci un link valido.' });
     }
 
+    const normalizedUrl = normalizeTicketUrl(url);
+    if (!normalizedUrl) {
+      return res.status(400).json({
+        message:
+          'URL non valido. Incolla un solo link https (es. da Condividi). Se hai incollato due link insieme, tieni solo quello del ticket.',
+      });
+    }
+    if (normalizedUrl !== String(url).trim()) {
+      console.log(`[Import URL] URL normalizzato: "${String(url).substring(0, 120)}" → "${normalizedUrl}"`);
+    }
+
     // Valida che sia un URL di un concessionario .it
-    const urlDomain = url.match(/https?:\/\/([^/]+)/i);
+    const urlDomain = normalizedUrl.match(/https?:\/\/([^/]+)/i);
     if (!urlDomain || !urlDomain[1].endsWith('.it')) {
       return res.status(400).json({
         message: 'Sono accettati solo link di concessionari italiani (.it).',
@@ -1802,7 +1842,7 @@ router.post('/import-url', auth, async (req, res) => {
     }
 
     // Estrai ticket ID dall'URL per controllo duplicati
-    const urlTicketId = url.match(/\/ticket\/([A-Z0-9]+)/i);
+    const urlTicketId = normalizedUrl.match(/\/ticket\/([A-Z0-9]+)/i);
     if (urlTicketId) {
       const existing = await Ticket.findOne({ ticketId: urlTicketId[1].toUpperCase() });
       if (existing) {
@@ -1820,85 +1860,48 @@ router.post('/import-url', auth, async (req, res) => {
       html = clientHtml;
       text = clientHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
-      const setFetchResult = (r) => {
-        if (r && r.html && r.text) {
-          html = r.html;
-          text = r.text;
-        }
-      };
-      const hasTicketInText = (t) => t && pageTextLooksLikeSportiumTicket(t);
-
-      // 1) CycleTLS — spesso 2–8s, stesso fingerprint browser (evita 1–2 min di ScraperAPI)
-      console.log(`[Import URL] Fase 1 - CycleTLS (veloce): ${url}`);
-      const cycleTLSResult = await fetchWithCycleTLS(url);
-      if (cycleTLSResult && cycleTLSResult.text.length > 100) {
-        setFetchResult(cycleTLSResult);
-        if (hasTicketInText(text)) {
-          console.log(`[Import URL] CycleTLS: dati ticket OK (${text.length} char), salto ScraperAPI`);
-        } else {
-          console.log(`[Import URL] CycleTLS: ${text.length} char ma senza schedina (shell?), continuo...`);
-        }
-      }
-
-      // 2) curl — leggero se il sito non blocca
-      if (!hasTicketInText(text)) {
-        console.log(`[Import URL] Fase 2 - curl`);
-        const curlResult = fetchWithCurl(url);
-        if (curlResult && curlResult.html && !curlResult.text.includes('Access Denied') && curlResult.text.length > 100) {
-          setFetchResult(curlResult);
-          if (hasTicketInText(text)) {
-            console.log(`[Import URL] curl: dati ticket OK (${text.length} char)`);
-          }
-        }
-      }
-
-      // 3) ScraperAPI: render=false (~20s max) poi render=true (~42s max), senza retry tripli su 500
-      if (!hasTicketInText(text)) {
-        console.log(`[Import URL] Fase 3 - ScraperAPI (proxy, render=false → render=true)`);
-        const scrapingResult = await fetchWithScrapingService(url);
-        if (scrapingResult && scrapingResult.text.length > 100) {
-          setFetchResult(scrapingResult);
-          console.log(`[Import URL] ScraperAPI: ${text.length} caratteri`);
-        }
-      }
-
-      // 4) Puppeteer solo se il testo è ancora assente o troppo corto
-      if (!text || text.length < 100) {
-        console.log(`[Import URL] Fase 4 - Puppeteer (fallback testo corto)`);
-        try {
-          const result = await fetchWithBrowser(url);
-          if (result && result.text && result.text.length > 100) {
-            setFetchResult(result);
-          }
-        } catch (browserErr) {
-          console.error('Errore Puppeteer:', browserErr.message);
-        }
-      }
-
-      // Se tutto è bloccato (controlla vari messaggi di blocco)
-      const blockPatterns = ['Access Denied', '403 Forbidden', 'Cloudflare', 'Just a moment', 'Checking your browser', 'Attention Required', 'Please Wait', 'Bot detected', 'captcha'];
-      const isBlocked = text && (text.length < 100 || blockPatterns.some(p => text.includes(p)));
-      if (isBlocked) {
-        console.log('[Import URL] Tutti i metodi bloccati, richiedo fetch lato client');
-        return res.status(403).json({
-          message: 'Il sito ha bloccato la richiesta. Usa la funzione "Incolla testo" per importare manualmente.',
+      if (!process.env.SCRAPER_API_KEY && !process.env.SCRAPE_DO_TOKEN) {
+        return res.status(503).json({
+          message:
+            'Import da link non è configurato sul server. Usa "Incolla testo" copiando la pagina del ticket dal browser.',
           needsClientFetch: true,
         });
       }
-    }
 
-    // ScraperAPI/CycleTLS possono restituire HTML lungo ma solo la shell (titolo sito): nessun "vs" né giocata.
-    if (!clientHtml && html && text && !pageTextLooksLikeSportiumTicket(text)) {
-      console.log('[Import URL] Testo senza dati schedina (probabile SPA), secondo tentativo con Puppeteer...');
-      try {
-        const br = await fetchWithBrowser(url);
-        if (br?.text && pageTextLooksLikeSportiumTicket(br.text)) {
-          html = br.html;
-          text = br.text;
-          console.log('[Import URL] Puppeteer ha recuperato il contenuto della giocata.');
-        }
-      } catch (e) {
-        console.warn('[Import URL] Puppeteer dopo shell:', e.message);
+      const sportiumTicketPage = /sportium\.it/i.test(normalizedUrl) && /\/ticket\//i.test(normalizedUrl);
+      console.log(
+        `[Import URL] Solo ScraperAPI (proxy)${sportiumTicketPage ? ' — render=true per schedina Sportium' : ''}: ${normalizedUrl}`,
+      );
+
+      const scrapingResult = await fetchWithScrapingService(normalizedUrl, { sportiumTicketPage });
+      if (scrapingResult && scrapingResult.text.length > 100) {
+        html = scrapingResult.html;
+        text = scrapingResult.text;
+        console.log(`[Import URL] ScraperAPI OK: ${text.length} caratteri`);
+      } else {
+        console.log('[Import URL] ScraperAPI: nessuna risposta utile');
+      }
+
+      const blockPatterns = [
+        'Access Denied',
+        '403 Forbidden',
+        'Cloudflare',
+        'Just a moment',
+        'Checking your browser',
+        'Attention Required',
+        'Please Wait',
+        'Bot detected',
+        'captcha',
+      ];
+      const isBlocked =
+        text && (text.length < 100 || blockPatterns.some((p) => text.includes(p)) || pageTextIsAkamaiOrAccessDenied(text));
+      if (isBlocked) {
+        console.log('[Import URL] Risposta bloccata o vuota dopo ScraperAPI');
+        return res.status(403).json({
+          message:
+            'Il sito non ha restituito la schedina (blocco o timeout). Apri il ticket nel browser e usa "Incolla testo".',
+          needsClientFetch: true,
+        });
       }
     }
 
@@ -1924,16 +1927,16 @@ router.post('/import-url', auth, async (req, res) => {
     console.log(`[Import URL] Pagina caricata, testo estratto: ${text.length} caratteri`);
 
     // Rileva concessionario dall'URL
-    const concessionario = detectConcessionario(url);
+    const concessionario = detectConcessionario(normalizedUrl);
 
     // Parse HTML/testo
-    const parsed = await parseSportiumHtml(html, url);
+    const parsed = await parseSportiumHtml(html, normalizedUrl);
 
     // Se il parser HTML non ha trovato scommesse, prova con il testo visibile
     if (!parsed.bets || parsed.bets.length === 0 ||
         (parsed.bets.length === 1 && parsed.bets[0].match === 'Ticket da link')) {
       // Prova a parsare il testo visibile come se fosse OCR
-      const textParsed = await parseSportiumHtml(`<body>${text}</body>`, url);
+      const textParsed = await parseSportiumHtml(`<body>${text}</body>`, normalizedUrl);
       if (textParsed.bets && textParsed.bets.length > 0 &&
           !(textParsed.bets.length === 1 && textParsed.bets[0].match === 'Ticket da link')) {
         Object.assign(parsed, textParsed);

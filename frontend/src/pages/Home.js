@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { uploadTicket, getMyTickets, getSharedTickets, toggleShareTicket, reparseTicket, importTicketUrl, importTicketText } from '../services/api';
+import { sanitizeTicketUrlInput } from '../utils/ticketUrl';
 
 function Home({ user }) {
   const [tickets, setTickets] = useState([]);
@@ -77,12 +78,14 @@ function Home({ user }) {
 
   const handleImportUrl = async () => {
     if (!ticketUrl.trim()) return;
+    const cleanedUrl = sanitizeTicketUrlInput(ticketUrl);
+    if (!cleanedUrl) return;
     setImportingUrl(true);
     setError('');
     setMessage('');
     setShowPasteBox(false);
     try {
-      await importTicketUrl(ticketUrl.trim());
+      await importTicketUrl(cleanedUrl);
       setMessage('Ticket importato dal link con successo!');
       setTicketUrl('');
       loadTickets();
@@ -116,7 +119,7 @@ function Home({ user }) {
     setError('');
     setMessage('');
     try {
-      await importTicketText(pasteText.trim(), ticketUrl.trim());
+      await importTicketText(pasteText.trim(), sanitizeTicketUrlInput(ticketUrl) || undefined);
       setMessage('Ticket importato con successo!');
       setTicketUrl('');
       setPasteText('');
